@@ -6,10 +6,6 @@ __pycache__/
 *.pyc
 
 # Virtual Environment
-venv/
-env/
-ENV/
-.venv/
 
 # Django
 *.log
@@ -19,11 +15,6 @@ db.sqlite3-journal
 /media
 /staticfiles
 *.pot
-
-# Environment variables
-.env
-.env.local
-.env.*.local
 
 # IDEs
 .vscode/
