@@ -6,8 +6,10 @@ from pathlib import Path
 import os
 from datetime import timedelta
 from decouple import config
-
-
+import dj_database_url  # ✅ Add this line
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -17,7 +19,7 @@ SECRET_KEY = 'django-insecure-your-secret-key-here'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'pneushop-backend.vercel.app']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'pneushop-backend.vercel.app','pneushop.tn','www.pneushop.tn','localhost','localhost:3000']
 
 # Application definition
 INSTALLED_APPS = [
@@ -37,8 +39,24 @@ INSTALLED_APPS = [
     'favorites',
     'orders',
     "suppliers",
+    'cloudinary',
+    'cloudinary_storage',
 ]
 
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+# CLOUDINARY_STORAGE = {
+#     'CLOUD_NAME': 'dd0aeelmg',
+#     'API_KEY': '123844773986758',
+#     'API_SECRET': 'cVFjqfxDU5l8_q4MWTSO8DEBVDA'
+# }
+# Cloudinary configuration
+cloudinary.config(
+    cloud_name = config('CLOUDINARY_CLOUD_NAME'),
+    api_key = config('CLOUDINARY_API_KEY'),
+    api_secret = config('CLOUDINARY_API_SECRET'),
+    secure=True,
+)
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -70,6 +88,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'pneushop.wsgi.application'
 
+
+
+# For using Sql lite
 # Database
 # DATABASES = {
 #     'default': {
@@ -78,15 +99,24 @@ WSGI_APPLICATION = 'pneushop.wsgi.application'
 #     }
 # }
 
+
+#For using Postgres Locally
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': config('DB_NAME', default='pneushop_db'),
+#         'USER': config('DB_USER', default='postgres'),
+#         'PASSWORD': config('DB_PASSWORD', default=''),
+#         'HOST': config('DB_HOST', default='localhost'),
+#         'PORT': config('DB_PORT', default='5432'),
+#     }
+# }
+
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='pneushop_db'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default=''),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
-    }
+    'default': dj_database_url.parse(
+        config('DATABASE_URL')
+    )
 }
 
 

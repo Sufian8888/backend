@@ -24,7 +24,7 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Prix")
     old_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Ancien prix")
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='products', verbose_name="Catégorie")
-    image = models.ImageField(upload_to='products/', blank=True, verbose_name="Image")
+    image = models.URLField(max_length=1000, blank=True, verbose_name="Image")
     brand = models.CharField(max_length=100, verbose_name="Marque")
     size = models.CharField(max_length=50, verbose_name="Taille")  # Ex: 205/55R16
     season = models.CharField(max_length=20, choices=[

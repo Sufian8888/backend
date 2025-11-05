@@ -7,7 +7,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .models import Product, Category, SiteSettings
-from .serializers import ProductSerializer, CategorySerializer, SiteSettingsSerializer
+from .serializers import ProductSerializer,ProductDetailSerializer, CategorySerializer, SiteSettingsSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Q
 from django.db import models
@@ -58,7 +58,7 @@ class ProductListView(generics.ListAPIView):
 
 class ProductDetailView(generics.RetrieveAPIView):
     queryset = Product.objects.filter(is_active=True)
-    serializer_class = ProductSerializer
+    serializer_class = ProductDetailSerializer
     lookup_field = 'slug'
     permission_classes = [AllowAny]
 
