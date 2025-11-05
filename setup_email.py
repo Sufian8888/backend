@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 🛞 PneuShop Email Setup Script
 This script helps you configure real email sending for the PneuShop application.
