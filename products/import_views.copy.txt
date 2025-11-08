@@ -1,0 +1,528 @@
+import os
+from decimal import Decimal
+import tempfile
+import pandas as pd
+import re
+import cloudinary.uploader
+from io import BytesIO
+import tempfile
+from openpyxl import load_workbook
+from django.conf import settings
+from django.utils.text import slugify
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework import status
+from .models import Product, Category
+
+output_folder = os.path.join(settings.MEDIA_ROOT, "uploads/images")
+os.makedirs(output_folder, exist_ok=True)
+
+
+
+def extract_tire_info(name):
+    """Extract tire information from product name"""
+    # Extract brand (usually at the beginning)
+    brand = "Continental"  # Default brand from Excel file
+
+    # Extract tire size using improved regex (format: XXX/XX RXX or XXX/XXrXX)
+    size_pattern = r'(\d{3}/\d{2}\s?R?\s?\d{2})'
+    size_match = re.search(size_pattern, name, re.IGNORECASE)
+    size = size_match.group(1) if size_match else "Unknown"
+
+    # Clean size format
+    size = re.sub(r'\s+', '', size).replace('r', 'R').replace('R', 'R')
+
+    # Remove common prefixes and tire size to extract product name
+    clean_name = name.replace("Pneu", "").replace("CONTINENTAL", "").strip()
+
+    # Remove the tire size pattern
+    if size_match:
+        clean_name = clean_name.replace(size_match.group(1), "").strip()
+
+    # Remove speed/load rating patterns (like 91H, 88T, etc.)
+    clean_name = re.sub(r'\b\d{2,3}[A-Z]{1,2}\b', '', clean_name).strip()
+
+    # Remove extra whitespace and clean up
+    clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+
+    # Extract meaningful product name
+    if clean_name:
+        # Remove leading/trailing non-alphanumeric characters
+        clean_name = re.sub(r'^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$', '', clean_name)
+        product_name = clean_name
+    else:
+        product_name = "Continental Tire"
+
+    return {
+        'brand': brand,
+        'name': product_name,
+        'size': size,
+        'full_name': f"{brand} {product_name} {size}".strip()
+    }
+
+def determine_season(name, description):
+    """Determine tire season based on name and description"""
+    text = (name + " " + str(description)).lower()
+
+    if any(word in text for word in ['winter', 'hiver', 'neige', 'snow']):
+        return 'winter'
+    elif any(word in text for word in ['summer', 'été', 'sport']):
+        return 'summer'
+    else:
+        return 'all_season'
+
+
+# def extract_images_from_excel(excel_file):
+#     """Extracts images from Excel and saves them to disk with row reference"""
+#     wb = load_workbook(excel_file)
+#     ws = wb.active
+
+#     row_images = {}
+#     for i, image in enumerate(ws._images, start=1):
+#         row = image.anchor._from.row
+#         if row not in row_images:
+#             row_images[row] = []
+#         row_images[row].append(image)
+
+#     saved_images = {}
+#     for row, images in row_images.items():
+#         if images:
+#             tire_image = images[0]  # take first image per row
+#             img_bytes = tire_image._data()
+#             img_name = f"row_{row}_tire.png"
+#             img_path = os.path.join(output_folder, img_name)
+#             with open(img_path, "wb") as f:
+#                 f.write(img_bytes)
+#             saved_images[row] = f"uploads/images/{img_name}"  # relative path for DB
+#     #         img_bytes_io = BytesIO(img_bytes)
+#     #         upload_result = cloudinary.uploader.upload(img_bytes_io, folder="pneushop/uploads/")
+#     #         saved_images[row] = upload_result.get("secure_url")  # save the URL directly
+#             return saved_images
+
+# def extract_images_from_excel(excel_file):
+#     """Extracts images from Excel, uploads each to Cloudinary, and returns row->URL mapping"""
+#     wb = load_workbook(excel_file)
+#     ws = wb.active
+
+#     row_images = {}
+#     for image in ws._images:
+#         try:
+#             row = image.anchor._from.row
+#             if row not in row_images:
+#                 row_images[row] = []
+#             row_images[row].append(image)
+#         except AttributeError:
+#             continue
+
+#     saved_images = {}
+#     for row, images in row_images.items():
+#         if images:
+#             tire_image = images[0]  # only one image per row
+#             img_bytes = tire_image._data()
+#             img_bytes_io = BytesIO(img_bytes)
+
+#             upload_result = cloudinary.uploader.upload(
+#                 img_bytes_io,
+#                 folder="pneushop/uploads/",
+#                 resource_type="image"
+#             )
+
+#             saved_images[row] = upload_result.get("secure_url")  # Cloudinary URL
+
+#     # ✅ Must be OUTSIDE the loop
+#     return saved_images
+
+def extract_images_from_excel(excel_file):
+    """Extracts images from Excel, uploads each to Cloudinary, and returns row->URL mapping"""
+    wb = load_workbook(excel_file, data_only=True)
+    ws = wb.active
+
+    row_images = {}
+    for image in ws._images:
+        try:
+            row = image.anchor._from.row
+            if row not in row_images:
+                row_images[row] = []
+            row_images[row].append(image)
+        except AttributeError:
+            continue
+
+    saved_images = {}
+    for row, images in row_images.items():
+        if images:
+            tire_image = images[0]  # one per row
+
+            # ✅ Get raw bytes safely
+            if hasattr(tire_image, "_data"):
+                img_bytes = tire_image._data()
+            elif hasattr(tire_image, "ref") and hasattr(tire_image.ref, "blob"):
+                img_bytes = tire_image.ref.blob
+            else:
+                continue  # skip if neither available
+
+            img_bytes_io = BytesIO(img_bytes)
+
+            # ✅ Upload directly to Cloudinary
+            upload_result = cloudinary.uploader.upload(
+                img_bytes_io,
+                folder="pneushop/uploads/",
+                resource_type="image"
+            )
+
+            saved_images[row] = upload_result.get("secure_url")
+
+    return saved_images
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def import_products_excel(request):
+    try:
+        if 'file' not in request.FILES:
+            return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
+
+        excel_file = request.FILES['file']
+
+        if not excel_file.name.endswith(('.xlsx', '.xls')):
+            return Response({'error': 'Invalid file type'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Save temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            for chunk in excel_file.chunks():
+                tmp.write(chunk)
+            temp_path = tmp.name
+
+        # Extract images
+        row_images = extract_images_from_excel(temp_path)
+
+        # Load Excel data
+        df = pd.read_excel(temp_path)
+        df.columns = [str(c).strip().upper() for c in df.columns]
+
+        required_columns = ['NOM', 'DESCRIPTION', 'PRIX TTC']
+        missing = [c for c in required_columns if c not in df.columns]
+        if missing:
+            return Response({
+                'error': f'Missing columns: {missing}',
+                'columns_found': list(df.columns)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create/get default category
+        category, _ = Category.objects.get_or_create(
+            name='Continental',
+            defaults={'slug': 'continental', 'description': 'Pneus Continental - qualité européenne'}
+        )
+
+        created_products, errors = [], []
+
+        for index, row in df.iterrows():
+            try:
+                # Skip empty rows
+                if pd.isna(row['NOM']) or pd.isna(row['PRIX TTC']):
+                    continue
+
+                product_name = str(row['NOM']).strip()
+                price = float(row['PRIX TTC'])
+                description = str(row['DESCRIPTION']) if not pd.isna(row['DESCRIPTION']) else ""
+                desc_lines = description.splitlines()[:3]
+                description = " ".join(desc_lines)[:95]
+
+                attr_lengths = {
+                    "NOM": len(product_name),
+                    "DESCRIPTION": len(description),
+                    "PRIX TTC": len(str(price))
+                }
+
+                # Log any unusually long attributes
+                long_attrs = {k: v for k, v in attr_lengths.items() if v > 100}
+                if long_attrs:
+                    print(f"⚠️ Row {index+1} has long attributes: {long_attrs}")
+
+                # Optional: skip rows with too long fields (safety)
+                if any(v > 500 for v in attr_lengths.values()):
+                    print(f"⏭️ Skipping row {index+1} — contains oversized text fields")
+                    continue
+
+                image_path = row_images.get(index + 2, None)
+
+                # Extract tire info & generate unique slug
+                tire_info = extract_tire_info(product_name)
+                slug = slugify(tire_info['full_name'])
+                counter = 1
+                while Product.objects.filter(slug=slug).exists():
+                    slug = f"{slug}-{counter}"
+                    counter += 1
+
+                season = determine_season(product_name, description)
+
+
+
+                product = Product.objects.create(
+                    name=tire_info['name'],
+                    brand=tire_info['brand'],
+                    size=tire_info['size'],
+                    slug=slug,
+                    description=description,
+                    price=Decimal(str(price)),
+                    category=category,
+                    season=season,
+                    stock=10,
+                    is_active=True,
+                    image=image_path
+                )
+                created_products.append(product.name)
+
+            except Exception as e:
+                errors.append(f"Row {index + 1}: {e}")
+
+        return Response({
+            'message': '✅ Import completed successfully',
+            'summary': {
+                'total_rows': len(df),
+                'created': len(created_products),
+                'errors': len(errors),
+            },
+            'created_products': created_products,
+            'errors': errors,
+        })
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])  # Remove for production
+def import_preview(request):
+    """Preview Excel file data before import"""
+    return Response({
+        'message': 'Upload Excel file to preview import data',
+
+        'expected_format': {
+            'columns': ['Product Name', 'Price TTC', 'Description', 'Image (optional)'],
+            'example': {
+                'Unnamed: 0': 'Pneu CONTINENTAL 195/65R15 91H ULTRA CONTACT',
+                'PRIX TTC': 299.238,
+                'DESCRIPTION': 'Points forts: Kilométrage ultra-élevé...',
+                'IMAGE': 'Optional image filename'
+            }
+        }
+    })
+
+
+
+
+# without the clodaniry 
+
+# @api_view(['POST'])
+# @permission_classes([AllowAny])  # Remove for production
+# def import_products_excel(request):
+#     try:
+#         if 'file' not in request.FILES:
+#             return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
+
+#         excel_file = request.FILES['file']
+
+#         if not excel_file.name.endswith(('.xlsx', '.xls')):
+#             return Response({'error': 'Invalid file type'}, status=status.HTTP_400_BAD_REQUEST)
+
+#         # Save uploaded file temporarily
+#         temp_path = os.path.join(output_folder, excel_file.name)
+#         with open(temp_path, "wb+") as f:
+#             for chunk in excel_file.chunks():
+#                 f.write(chunk)
+#         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+#             for chunk in excel_file.chunks():
+#                 tmp.write(chunk)
+#             temp_path = tmp.name
+#         # Extract images before reading via pandas
+#         row_images = extract_images_from_excel(temp_path)
+
+#         df = pd.read_excel(temp_path)
+#         required_columns = ['Unnamed: 0', 'PRIX TTC', 'DESCRIPTION']
+#         missing_columns = [c for c in required_columns if c not in df.columns]
+#         if missing_columns:
+#             return Response({'error': f'Missing columns: {missing_columns}'}, status=status.HTTP_400_BAD_REQUEST)
+
+#         continental_category, _ = Category.objects.get_or_create(
+#             name='Continental',
+#             defaults={'slug': 'continental', 'description': 'Pneus Continental - Qualité et performance européenne'}
+#         )
+
+#         created_products, updated_products, errors = [], [], []
+
+#         for index, row in df.iterrows():
+#             try:
+#                 if pd.isna(row['Unnamed: 0']) or pd.isna(row['PRIX TTC']):
+#                     continue
+
+#                 product_name = str(row['Unnamed: 0']).strip()
+#                 price = float(row['PRIX TTC'])
+#                 description = str(row['DESCRIPTION']) if not pd.isna(row['DESCRIPTION']) else ""
+
+#                 # Find image for this row (Excel row index starts at 2 usually because row 1 = header)
+#                 image_path = row_images.get(index + 2, None)
+
+#                 # Extract tire info
+#                 tire_info = extract_tire_info(product_name)
+
+#                 slug = slugify(tire_info['full_name'])
+#                 counter = 1
+#                 while Product.objects.filter(slug=slug).exists():
+#                     slug = f"{slug}-{counter}"
+#                     counter += 1
+
+#                 season = determine_season(product_name, description)
+
+#                 product, created = Product.objects.get_or_create(
+#                     name=tire_info['name'],
+#                     brand=tire_info['brand'],
+#                     size=tire_info['size'],
+#                     defaults={
+#                         'slug': slug,
+#                         'description': description,
+#                         'price': Decimal(str(price)),
+#                         'category': continental_category,
+#                         'season': season,
+#                         'stock': 10,
+#                         'is_active': True,
+#                         'image': image_path  # <-- save image path
+#                     }
+#                 )
+
+#                 if created:
+#                     created_products.append(product.name)
+#                 else:
+#                     product.price = Decimal(str(price))
+#                     product.description = description
+#                     product.season = season
+#                     if image_path:
+#                         product.image = image_path
+#                     product.save()
+#                     updated_products.append(product.name)
+
+#             except Exception as e:
+#                 errors.append(f"Row {index + 1}: {str(e)}")
+
+#         return Response({
+#             'message': 'Import completed successfully',
+#             'summary': {
+#                 'total_rows': len(df),
+#                 'created': len(created_products),
+#                 'updated': len(updated_products),
+#                 'errors': len(errors),
+#             },
+#             'created_products': created_products[:10],
+#             'updated_products': updated_products[:10],
+#             'errors': errors[:10],
+#         }, status=status.HTTP_200_OK)
+
+#     except Exception as e:
+#         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+# with the clodaniry 
+# @api_view(['POST'])
+# @permission_classes([AllowAny])  # Remove for production
+# def import_products_excel(request):
+#     try:
+#         if 'file' not in request.FILES:
+#             return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
+
+#         excel_file = request.FILES['file']
+
+#         if not excel_file.name.endswith(('.xlsx', '.xls')):
+#             return Response({'error': 'Invalid file type'}, status=status.HTTP_400_BAD_REQUEST)
+
+#         # ✅ Save the uploaded Excel file once only
+#         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+#             for chunk in excel_file.chunks():
+#                 tmp.write(chunk)
+#             temp_path = tmp.name
+
+#         # ✅ Extract images from Excel
+#         row_images = extract_images_from_excel(temp_path)
+
+#         # ✅ Load Excel into DataFrame
+#         df = pd.read_excel(temp_path)
+
+#         required_columns = ['Unnamed: 0', 'PRIX TTC', 'DESCRIPTION']
+#         missing_columns = [c for c in required_columns if c not in df.columns]
+#         if missing_columns:
+#             return Response({'error': f'Missing columns: {missing_columns}'}, status=status.HTTP_400_BAD_REQUEST)
+
+#         # ✅ Ensure category exists
+#         continental_category, _ = Category.objects.get_or_create(
+#             name='Continental',
+#             defaults={'slug': 'continental', 'description': 'Pneus Continental - Qualité et performance européenne'}
+#         )
+
+#         created_products, updated_products, errors = [], [], []
+
+#         # ✅ Loop over all rows in Excel
+#         for index, row in df.iterrows():
+#             try:
+#                 if pd.isna(row['Unnamed: 0']) or pd.isna(row['PRIX TTC']):
+#                     continue
+
+#                 product_name = str(row['Unnamed: 0']).strip()
+#                 price = float(row['PRIX TTC'])
+#                 description = str(row['DESCRIPTION']) if not pd.isna(row['DESCRIPTION']) else ""
+
+#                 # ✅ Find image for current Excel row (starts at 2 because of header)
+#                 image_path = row_images.get(index + 2, None)
+
+#                 # ✅ Extract tire info and slug
+#                 tire_info = extract_tire_info(product_name)
+#                 slug = slugify(tire_info['full_name'])
+#                 counter = 1
+#                 while Product.objects.filter(slug=slug).exists():
+#                     slug = f"{slug}-{counter}"
+#                     counter += 1
+
+#                 season = determine_season(product_name, description)
+
+#                 # ✅ Create or update product
+#                 product, created_flag = Product.objects.get_or_create(
+#                     name=tire_info['name'],
+#                     brand=tire_info['brand'],
+#                     size=tire_info['size'],
+#                     defaults={
+#                         'slug': slug,
+#                         'description': description,
+#                         'price': Decimal(str(price)),
+#                         'category': continental_category,
+#                         'season': season,
+#                         'stock': 10,
+#                         'is_active': True,
+#                         'image': image_path
+#                     }
+#                 )
+
+#                 if created_flag:
+#                     created_products.append(product.name)
+#                 else:
+#                     product.price = Decimal(str(price))
+#                     product.description = description
+#                     product.season = season
+#                     if image_path:
+#                         product.image = image_path
+#                     product.save()
+#                     updated_products.append(product.name)
+
+#             except Exception as e:
+#                 errors.append(f"Row {index + 1}: {str(e)}")
+
+#         return Response({
+#             'message': '✅ Import completed successfully',
+#             'summary': {
+#                 'total_rows': len(df),
+#                 'created': len(created_products),
+#                 'updated': len(updated_products),
+#                 'errors': len(errors),
+#             },
+#             'created_products': created_products[:10],
+#             'updated_products': updated_products[:10],
+#             'errors': errors[:10],
+#         }, status=status.HTTP_200_OK)
+
+#     except Exception as e:
+#         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
