@@ -96,9 +96,14 @@ class OrderListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
+        from django.utils import timezone
         order = serializer.save(user=self.request.user)
         if not order.order_number:
-            order.order_number = f"PN-{order.id:06d}"
+            year = timezone.now().strftime('%y')  # Get 2-digit year
+            # Get the count of orders created this year
+            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            order_count = Order.objects.filter(created_at__gte=year_start).count()
+            order.order_number = f"PS{year}{order_count:06d}"
             order.save()
 
         if not order.tracking_number:

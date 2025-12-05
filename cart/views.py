@@ -169,10 +169,18 @@ def checkout_cart(request):
             order.status = 'completed'
             order.save()
             
+            from django.utils import timezone
+            year = timezone.now().strftime('%y')
+            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            from django.apps import apps
+            Order = apps.get_model('products', 'Order')
+            order_count = Order.objects.filter(created_at__gte=year_start).count()
+            order_number = f'PS{year}{order_count:06d}'
+            
             return Response({
                 'message': 'Commande créée avec succès',
                 'order_id': order.id,
-                'order_number': f'PN-{order.id:06d}',
+                'order_number': order_number,
                 'total_amount': float(order.total_amount),
                 'status': order.status
             })

@@ -82,14 +82,23 @@ class Order(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.order_number and not self.pk:
-            # For new orders, save first to get pk, then update order number
+            # For new orders, save first to get pk, then generate order number
             super().save(*args, **kwargs)
-            self.order_number = f'PN-{self.pk:06d}'
+            from django.utils import timezone
+            year = timezone.now().strftime('%y')  # Get 2-digit year
+            # Get the count of orders created this year
+            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            order_count = Order.objects.filter(created_at__gte=year_start).count()
+            self.order_number = f'PS{year}{order_count:06d}'
             # Use update to avoid recursion
             Order.objects.filter(pk=self.pk).update(order_number=self.order_number)
         elif not self.order_number and self.pk:
             # Already has pk but no order number
-            self.order_number = f'PN-{self.pk:06d}'
+            from django.utils import timezone
+            year = timezone.now().strftime('%y')
+            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            order_count = Order.objects.filter(created_at__gte=year_start).count()
+            self.order_number = f'PS{year}{order_count:06d}'
             super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)

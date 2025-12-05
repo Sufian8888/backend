@@ -13,6 +13,7 @@ class OrderSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     # items = OrderItemSerializer(many=True)
     items = OrderItemSerializer(many=True)
+    order_number = serializers.CharField(read_only=True)  # Make read-only to auto-generate
 
     class Meta:
         model = Order
@@ -21,8 +22,19 @@ class OrderSerializer(serializers.ModelSerializer):
    
 
     def create(self, validated_data):
+        from django.utils import timezone
         items_data = validated_data.pop('items')
         order = Order.objects.create(**validated_data)
+        
+        # Generate order number with PS + year + sequential format
+        if not order.order_number:
+            year = timezone.now().strftime('%y')  # Get 2-digit year
+            # Get the count of orders created this year
+            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            order_count = Order.objects.filter(created_at__gte=year_start).count()
+            order.order_number = f'PS{year}{order_count:06d}'
+            order.save()
+        
         for item in items_data:
             OrderItem.objects.create(order=order, **item)
         return order
