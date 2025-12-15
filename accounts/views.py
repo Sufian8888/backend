@@ -34,8 +34,8 @@ from .email_utils import send_welcome_email, send_password_reset_email
     
 #     return Response(request)
 
-from django.core.mail import send_mail
-from django.conf import settings
+# from django.core.mail import send_mail
+# from django.conf import settings
 from django.http import HttpResponse
 
 def index(request):
@@ -68,24 +68,24 @@ class RegisterView(generics.CreateAPIView):
         user.save()
         
         # Send welcome email with verification
-        try:
-            send_welcome_email(user)
-            print(f"Welcome email sent to {user.email}")
-        except Exception as e:
-            print(f"Erreur envoi email de bienvenue: {e}")
+        # try:
+        #     send_welcome_email(user)
+        #     print(f"Welcome email sent to {user.email}")
+        # except Exception as e:
+        #     print(f"Erreur envoi email de bienvenue: {e}")
         
-        # Send verification email
-        try:
-            send_mail(
-                'Vérification de votre compte PneuShop',
-                f'Votre code de vérification est: {verification_code}',
-                settings.DEFAULT_FROM_EMAIL,
-                [user.email],
-                fail_silently=True,
-            )
-            print(f"Verification email sent to {user.email}")
-        except Exception as e:
-            print(f"Erreur envoi email de vérification: {e}")
+        # # Send verification email
+        # try:
+        #     send_mail(
+        #         'Vérification de votre compte PneuShop',
+        #         f'Votre code de vérification est: {verification_code}',
+        #         settings.DEFAULT_FROM_EMAIL,
+        #         [user.email],
+        #         fail_silently=True,
+        #     )
+        #     print(f"Verification email sent to {user.email}")
+        # except Exception as e:
+        #     print(f"Erreur envoi email de vérification: {e}")
         
         return Response({
             'success': True,

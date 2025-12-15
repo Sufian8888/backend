@@ -67,12 +67,24 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
 #         return purchase_order
 class PurchaseOrderSerializer(serializers.ModelSerializer):
     articles = PurchaseOrderItemSerializer(many=True)
-    order = serializers.PrimaryKeyRelatedField(queryset=Order.objects.all(), required=False)
-    order_id = serializers.IntegerField(source="order.id", read_only=True)
+    # Make order field optional and handle validation manually
+    order = serializers.PrimaryKeyRelatedField(
+        queryset=Order.objects.all(), 
+        required=False, 
+        allow_null=True
+    )
+    order_id = serializers.IntegerField(source="order.id", read_only=True, allow_null=True)
 
     class Meta:
         model = PurchaseOrder
         fields = ["id","order_id","order", "fournisseur", "date_commande", "date_livraison_prevue", "total_ht", "total_ttc", "statut", "priorite", "articles"]
+    
+    def validate_order(self, value):
+        """Custom validation for order field"""
+        if value is None:
+            return None
+        # If value is provided, it's already validated by PrimaryKeyRelatedField
+        return value
 
     def create(self, validated_data):
         articles_data = validated_data.pop("articles", [])

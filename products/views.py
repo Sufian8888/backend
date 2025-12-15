@@ -25,6 +25,16 @@ class ProductListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = super().get_queryset()
 
+        # Category filtering - support both ID and slug
+        category_param = self.request.query_params.get('category')
+        category_slug = self.request.query_params.get('category_slug')
+        
+        if category_slug:
+            queryset = queryset.filter(category__slug=category_slug)
+        elif category_param:
+            # Support numeric category ID filtering as well
+            queryset = queryset.filter(category_id=category_param)
+
         min_price = self.request.query_params.get('min_price')
         max_price = self.request.query_params.get('max_price')
         on_sale = self.request.query_params.get('on_sale')
