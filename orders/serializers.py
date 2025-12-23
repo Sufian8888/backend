@@ -11,19 +11,28 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    # items = OrderItemSerializer(many=True)
     items = OrderItemSerializer(many=True)
     order_number = serializers.CharField(read_only=True)  # Make read-only to auto-generate
+    warranty = serializers.JSONField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = Order
         fields = "__all__"
 
-   
-
     def create(self, validated_data):
         from django.utils import timezone
+        
+        # Extract nested data
         items_data = validated_data.pop('items')
+        warranty_data = validated_data.pop('warranty', None)
+        
+        # Process warranty data if provided
+        if warranty_data:
+            validated_data['warranty_accepted'] = warranty_data.get('accepted', False)
+            validated_data['warranty_vehicle_registration'] = warranty_data.get('vehicleRegistration', '')
+            validated_data['warranty_vehicle_mileage'] = warranty_data.get('vehicleMileage', '')
+        
+        # Create order
         order = Order.objects.create(**validated_data)
         
         # Generate order number with PS + year + sequential format
@@ -35,8 +44,10 @@ class OrderSerializer(serializers.ModelSerializer):
             order.order_number = f'PS{year}{order_count:06d}'
             order.save()
         
+        # Create order items
         for item in items_data:
             OrderItem.objects.create(order=order, **item)
+        
         return order
 
 
@@ -77,7 +88,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PurchaseOrder
-        fields = ["id","order_id","order", "fournisseur", "date_commande", "date_livraison_prevue", "total_ht", "total_ttc", "statut", "priorite", "articles"]
+        fields = ["id","order_id","order", "date_commande", "date_livraison_prevue", "total_ht", "total_ttc", "statut", "priorite", "articles"]
     
     def validate_order(self, value):
         """Custom validation for order field"""
@@ -173,7 +184,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
                     new_delivery = Delivery.objects.create(
                         purchase_order=instance,
                         order=instance.order,  # This can be null
-                        client=f"{instance.fournisseur} ({delivery_identifier})",
+                        client=f"Purchase Order ({delivery_identifier})",
                         adresse="Entrepôt principal",  # Your warehouse address
                         transporteur="À assigner",
                         statut="prepare",

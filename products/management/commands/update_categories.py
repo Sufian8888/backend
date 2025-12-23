@@ -25,7 +25,7 @@ class Command(BaseCommand):
             },
             {
                 'name': 'Tourisme',
-                'slug': 'auto',
+                'slug': 'tourisme',
                 'description': 'Pneus pour véhicules de tourisme'
             },
             {

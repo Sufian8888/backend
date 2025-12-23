@@ -37,6 +37,13 @@ class Product(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="Actif")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Créé le")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Modifié le")
+    
+    # Manual entry fields
+    reference = models.CharField(max_length=100, blank=True, null=True, verbose_name="Référence")
+    designation = models.CharField(max_length=255, blank=True, null=True, verbose_name="Désignation")
+    type = models.CharField(max_length=100, blank=True, null=True, verbose_name="Type")
+    emplacement = models.CharField(max_length=255, blank=True, null=True, verbose_name="Emplacement")
+    fabrication_date = models.DateField(blank=True, null=True, verbose_name="Date de fabrication")
 
     class Meta:
         verbose_name = "Produit"

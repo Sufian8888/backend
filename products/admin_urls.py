@@ -9,6 +9,7 @@ urlpatterns = [
     
     # Products CRUD
     path('products/', admin_views.AdminProductListCreateView.as_view(), name='product_list_create'),
+    path('products/manual/', admin_views.create_product_manual, name='create_product_manual'),
     path('products/<int:pk>/', admin_views.AdminProductDetailView.as_view(), name='product_detail'),
     path('products/bulk-update/', admin_views.bulk_update_products, name='bulk_update_products'),
     

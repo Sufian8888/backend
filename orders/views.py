@@ -97,18 +97,39 @@ class OrderListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         from django.utils import timezone
-        order = serializer.save(user=self.request.user)
-        if not order.order_number:
-            year = timezone.now().strftime('%y')  # Get 2-digit year
-            # Get the count of orders created this year
-            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            order_count = Order.objects.filter(created_at__gte=year_start).count()
-            order.order_number = f"PS{year}{order_count:06d}"
-            order.save()
+        from products.models import Product
+        from django.db import transaction
+        
+        with transaction.atomic():
+            order = serializer.save(user=self.request.user)
+            
+            # Subtract stock for each order item
+            for item_data in order.items.all():
+                if item_data.product_id:
+                    try:
+                        product = Product.objects.select_for_update().get(id=item_data.product_id)
+                        print(f"[ORDER CREATE] Product: {product.name}, Stock before: {product.stock}, Ordered: {item_data.quantity}")
+                        
+                        if product.stock >= item_data.quantity:
+                            product.stock -= item_data.quantity
+                            product.save()
+                            print(f"[ORDER CREATE] Stock after: {product.stock}")
+                        else:
+                            print(f"[ORDER CREATE] WARNING: Insufficient stock for {product.name}. Available: {product.stock}, Ordered: {item_data.quantity}")
+                    except Product.DoesNotExist:
+                        print(f"[ORDER CREATE] WARNING: Product ID {item_data.product_id} not found")
+            
+            if not order.order_number:
+                year = timezone.now().strftime('%y')  # Get 2-digit year
+                # Get the count of orders created this year
+                year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                order_count = Order.objects.filter(created_at__gte=year_start).count()
+                order.order_number = f"PS{year}{order_count:06d}"
+                order.save()
 
-        if not order.tracking_number:
-            order.tracking_number = f"TRK-{order.id:06d}"
-            order.save()
+            if not order.tracking_number:
+                order.tracking_number = f"TRK-{order.id:06d}"
+                order.save()
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):

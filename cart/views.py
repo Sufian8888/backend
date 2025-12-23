@@ -17,6 +17,14 @@ class CartView(generics.RetrieveAPIView):
         cart, created = Cart.objects.get_or_create(user=self.request.user)
         return cart
 
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # Prevent caching of cart data
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        return response
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_to_cart(request):
@@ -34,6 +42,9 @@ def add_to_cart(request):
         
         product = get_object_or_404(Product, id=product_id, is_active=True)
         
+        # Log initial state
+        print(f"[ADD TO CART] Product: {product.name} (ID: {product.id}), Initial Stock: {product.stock}, Quantity to add: {quantity}")
+        
         # Check stock availability
         if product.stock < quantity:
             return Response({'error': f'Stock insuffisant. Disponible: {product.stock}'}, 
@@ -42,25 +53,48 @@ def add_to_cart(request):
         cart, created = Cart.objects.get_or_create(user=request.user)
         
         with transaction.atomic():
-            cart_item, created = CartItem.objects.get_or_create(
+            # Refresh product to get latest stock
+            product.refresh_from_db()
+            
+            cart_item, item_created = CartItem.objects.get_or_create(
                 cart=cart,
                 product=product,
                 defaults={'quantity': quantity}
             )
             
-            if not created:
-                new_quantity = cart_item.quantity + quantity
-                if product.stock < new_quantity:
+            if not item_created:
+                # When item already exists in cart, just check if we can add MORE
+                print(f"[ADD TO CART] Item exists in cart with quantity: {cart_item.quantity}")
+                if product.stock < quantity:
                     return Response({'error': f'Stock insuffisant. Disponible: {product.stock}'}, 
                                    status=status.HTTP_400_BAD_REQUEST)
-                cart_item.quantity = new_quantity
+                cart_item.quantity += quantity
                 cart_item.save()
+                print(f"[ADD TO CART] Updated cart quantity to: {cart_item.quantity}")
+            else:
+                print(f"[ADD TO CART] Created new cart item with quantity: {quantity}")
+            
+            # Subtract stock immediately when adding to cart
+            old_stock = product.stock
+            product.stock -= quantity
+            product.save()
+            print(f"[ADD TO CART] Stock updated: {old_stock} -> {product.stock}")
         
-        return Response({
+        # Refresh to get updated stock
+        product.refresh_from_db()
+        
+        response = Response({
             'message': 'Produit ajouté au panier',
             'cart': CartSerializer(cart).data,
-            'item_id': cart_item.id
+            'item_id': cart_item.id,
+            'updated_product': {
+                'id': product.id,
+                'stock': product.stock
+            }
         })
+        # Prevent caching
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return response
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -70,42 +104,108 @@ def update_cart_item(request, item_id):
     cart_item = get_object_or_404(CartItem, id=item_id, cart__user=request.user)
     quantity = int(request.data.get('quantity', 1))
     
-    if quantity <= 0:
-        cart_item.delete()
-        message = 'Produit supprimé du panier'
-    else:
-        # Check stock availability
-        if cart_item.product.stock < quantity:
-            return Response({'error': f'Stock insuffisant. Disponible: {cart_item.product.stock}'}, 
-                           status=status.HTTP_400_BAD_REQUEST)
-        
-        cart_item.quantity = quantity
-        cart_item.save()
-        message = 'Quantité mise à jour'
+    print(f"[UPDATE CART] Item ID: {item_id}, Product: {cart_item.product.name}, Old Qty: {cart_item.quantity}, New Qty: {quantity}")
     
-    return Response({
+    with transaction.atomic():
+        old_quantity = cart_item.quantity
+        
+        if quantity <= 0:
+            # Restore stock when deleting item
+            cart_item.product.stock += old_quantity
+            cart_item.product.save()
+            cart = cart_item.cart
+            cart_item.delete()
+            message = 'Produit supprimé du panier'
+            return Response({
+                'message': message,
+                'cart': CartSerializer(cart).data
+            })
+        else:
+            # Calculate difference in quantity
+            quantity_diff = quantity - old_quantity
+            
+            print(f"[UPDATE CART] Stock before: {cart_item.product.stock}, Qty diff: {quantity_diff}")
+            
+            # Check stock availability for increase
+            if quantity_diff > 0 and cart_item.product.stock < quantity_diff:
+                return Response({'error': f'Stock insuffisant. Disponible: {cart_item.product.stock}'}, 
+                               status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update stock: subtract if increasing, add back if decreasing
+            cart_item.product.stock -= quantity_diff
+            cart_item.product.save()
+            
+            print(f"[UPDATE CART] Stock after: {cart_item.product.stock}")
+            
+            cart_item.quantity = quantity
+            cart_item.save()
+            message = 'Quantité mise à jour'
+    
+    # Refresh to get updated stock
+    cart_item.product.refresh_from_db()
+    
+    response = Response({
         'message': message,
-        'cart': CartSerializer(cart_item.cart).data
+        'cart': CartSerializer(cart_item.cart).data,
+        'updated_product': {
+            'id': cart_item.product.id,
+            'stock': cart_item.product.stock
+        }
     })
+    # Prevent caching
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def remove_from_cart(request, item_id):
     cart_item = get_object_or_404(CartItem, id=item_id, cart__user=request.user)
     cart = cart_item.cart
-    cart_item.delete()
     
-    return Response({
+    product_id = cart_item.product.id
+    
+    with transaction.atomic():
+        # Restore stock when removing from cart
+        cart_item.product.stock += cart_item.quantity
+        cart_item.product.save()
+        # Get updated stock before deleting
+        updated_stock = cart_item.product.stock
+        cart_item.delete()
+    
+    response = Response({
         'message': 'Produit supprimé du panier',
-        'cart': CartSerializer(cart).data
+        'cart': CartSerializer(cart).data,
+        'updated_product': {
+            'id': product_id,
+            'stock': updated_stock
+        }
     })
+    # Prevent caching
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return response
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def clear_cart(request):
     """Clear all items from user's cart"""
     cart = get_object_or_404(Cart, user=request.user)
-    cart.items.all().delete()
+    
+    # Check if we should restore stock (default: yes, unless clearing after checkout)
+    restore_stock = request.query_params.get('restore_stock', 'true').lower() == 'true'
+    
+    with transaction.atomic():
+        if restore_stock:
+            # Restore stock for all items before clearing (user manually cleared cart)
+            print(f"[CLEAR CART] Restoring stock for {cart.items.count()} items")
+            for cart_item in cart.items.all():
+                cart_item.product.stock += cart_item.quantity
+                cart_item.product.save()
+                print(f"[CLEAR CART] Restored {cart_item.quantity} to {cart_item.product.name}")
+        else:
+            # Don't restore stock (cart cleared after checkout)
+            print(f"[CLEAR CART] NOT restoring stock (checkout completed)")
+        
+        cart.items.all().delete()
     
     return Response({
         'message': 'Panier vidé',
@@ -142,14 +242,8 @@ def checkout_cart(request):
                 notes=notes
             )
             
-            # Create order items and update stock
+            # Create order items (stock already subtracted when added to cart)
             for cart_item in cart.items.all():
-                # Check if enough stock is available
-                if cart_item.product.stock < cart_item.quantity:
-                    return Response({
-                        'error': f'Stock insuffisant pour {cart_item.product.name}. Disponible: {cart_item.product.stock}'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
                 # Create order item
                 OrderItem.objects.create(
                     order=order,
@@ -158,11 +252,11 @@ def checkout_cart(request):
                     price=cart_item.product.price
                 )
                 
-                # Update product stock
-                cart_item.product.stock -= cart_item.quantity
-                cart_item.product.save()
+                # Note: Stock was already subtracted when item was added to cart
+                # No need to subtract again here
             
-            # Clear cart after successful order
+            # Clear cart after successful order WITHOUT restoring stock
+            print(f"[CHECKOUT] Clearing cart without restoring stock")
             cart.items.all().delete()
             
             # Complete the order (skip payment processing)

@@ -30,6 +30,12 @@ class Order(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     tracking_number = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Warranty information fields
+    warranty_accepted = models.BooleanField(default=False)
+    warranty_vehicle_registration = models.CharField(max_length=100, blank=True, null=True)
+    warranty_vehicle_mileage = models.CharField(max_length=50, blank=True, null=True)
+    
     def __str__(self):
         return f"{self.order_number} - {self.user.email}"
 
@@ -64,7 +70,6 @@ class PurchaseOrder(models.Model):
             null=True,  # Temporarily allow null for migration
             blank=True
         )
-    fournisseur = models.CharField(max_length=255)
     date_commande = models.DateField()
     date_livraison_prevue = models.DateField()
     total_ht = models.DecimalField(max_digits=10, decimal_places=2)
@@ -73,7 +78,7 @@ class PurchaseOrder(models.Model):
     priorite = models.CharField(max_length=20, choices=PRIORITE_CHOICES, default="normale")
 
     def __str__(self):
-        return f"{self.fournisseur} - {self.date_commande}"
+        return f"PO-{self.id} - {self.date_commande}"
 
 
 class PurchaseOrderItem(models.Model):

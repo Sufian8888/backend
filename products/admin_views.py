@@ -487,3 +487,92 @@ class StockMovementListCreateView(generics.ListCreateAPIView):
     queryset = StockMovement.objects.all().select_related('product')
     serializer_class = StockMovementSerializer
     permission_classes = [IsAuthenticated]
+
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def create_product_manual(request):
+    """Manual product creation endpoint with image upload support"""
+    from django.utils.text import slugify
+    from django.core.files.storage import default_storage
+    from django.core.files.base import ContentFile
+    import json
+    
+    try:
+        # Get category (either ID or create new)
+        category_name = request.data.get('category', 'auto')
+        category, _ = Category.objects.get_or_create(
+            name=category_name,
+            defaults={'slug': slugify(category_name)}
+        )
+        
+        # Extract specifications from JSON if provided
+        specifications = request.data.get('specifications')
+        if isinstance(specifications, str):
+            specifications = json.loads(specifications)
+        
+        # Build size string from specifications
+        if specifications:
+            width = specifications.get('width', 0)
+            height = specifications.get('height', 0)
+            diameter = specifications.get('diameter', 0)
+            load_index = specifications.get('loadIndex', 0)
+            speed_rating = specifications.get('speedRating', '')
+            size = f"{width}/{height}R{diameter} {load_index}{speed_rating}"
+        else:
+            size = "N/A"
+        
+        # Map frontend season values to backend
+        season_map = {
+            'ete': 'summer',
+            'hiver': 'winter',
+            'toutes-saisons': 'all_season'
+        }
+        season = season_map.get(
+            specifications.get('season', 'ete') if specifications else 'ete',
+            'summer'
+        )
+        
+        # Handle image uploads
+        image_url = ""
+        uploaded_files = request.FILES.getlist('images')
+        if uploaded_files:
+            # Save first image as main product image
+            first_image = uploaded_files[0]
+            image_path = f'products/{slugify(request.data.get("name", "product"))}_{first_image.name}'
+            saved_path = default_storage.save(image_path, ContentFile(first_image.read()))
+            image_url = default_storage.url(saved_path)
+        
+        # Create product
+        product_data = {
+            'name': request.data.get('name'),
+            'slug': slugify(request.data.get('name', '')),
+            'description': request.data.get('description', ''),
+            'price': request.data.get('price'),
+            'old_price': request.data.get('old_price') or None,
+            'category': category,
+            'image': image_url,
+            'brand': request.data.get('brand', ''),
+            'size': size,
+            'season': season,
+            'stock': request.data.get('stock', 0),
+            'is_featured': request.data.get('isPromotion') == 'true',
+            'is_active': request.data.get('inStock') == 'true',
+            # Manual entry fields
+            'reference': request.data.get('reference', ''),
+            'designation': request.data.get('designation', ''),
+            'type': request.data.get('type', ''),
+            'emplacement': request.data.get('emplacement', ''),
+            'fabrication_date': request.data.get('fabrication_date') or None,
+        }
+        
+        product = Product.objects.create(**product_data)
+        
+        serializer = AdminProductSerializer(product)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
