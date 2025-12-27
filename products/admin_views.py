@@ -533,8 +533,10 @@ def create_product_manual(request):
             'summer'
         )
         
-        # Handle image uploads
+        # Handle image uploads (up to 3 images)
         image_url = ""
+        image_2_url = ""
+        image_3_url = ""
         uploaded_files = request.FILES.getlist('images')
         if uploaded_files:
             # Save first image as main product image
@@ -542,6 +544,20 @@ def create_product_manual(request):
             image_path = f'products/{slugify(request.data.get("name", "product"))}_{first_image.name}'
             saved_path = default_storage.save(image_path, ContentFile(first_image.read()))
             image_url = default_storage.url(saved_path)
+            
+            # Save second image if provided
+            if len(uploaded_files) > 1:
+                second_image = uploaded_files[1]
+                image_path_2 = f'products/{slugify(request.data.get("name", "product"))}_2_{second_image.name}'
+                saved_path_2 = default_storage.save(image_path_2, ContentFile(second_image.read()))
+                image_2_url = default_storage.url(saved_path_2)
+            
+            # Save third image if provided
+            if len(uploaded_files) > 2:
+                third_image = uploaded_files[2]
+                image_path_3 = f'products/{slugify(request.data.get("name", "product"))}_3_{third_image.name}'
+                saved_path_3 = default_storage.save(image_path_3, ContentFile(third_image.read()))
+                image_3_url = default_storage.url(saved_path_3)
         
         # Create product
         product_data = {
@@ -552,6 +568,8 @@ def create_product_manual(request):
             'old_price': request.data.get('old_price') or None,
             'category': category,
             'image': image_url,
+            'image_2': image_2_url,  # Second image
+            'image_3': image_3_url,  # Third image
             'brand': request.data.get('brand', ''),
             'size': size,
             'season': season,

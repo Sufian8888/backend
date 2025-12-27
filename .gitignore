@@ -163,6 +163,8 @@ node_modules/
 *.temp
 
 # Configuration files with sensitive data
+# Environment variables
+.env
 .env.local
 .env.production
 secrets.json

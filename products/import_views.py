@@ -23,24 +23,46 @@ os.makedirs(output_folder, exist_ok=True)
 
 def extract_tire_info(name):
     """Extract tire information from product name"""
-    # Extract brand (usually at the beginning)
-    brand = "Continental"  # Default brand from Excel file
+    print(f"🔍 Extracting tire info from: {name}")
+    
+    # Extract brand - look for common brands
+    brand = "Continental"  # Default brand
+    brand_patterns = ['LAUFENN', 'CONTINENTAL', 'MICHELIN', 'BRIDGESTONE', 'GOODYEAR', 'PIRELLI']
+    for b in brand_patterns:
+        if b.upper() in name.upper():
+            brand = b.capitalize()
+            break
     
     # Extract tire size using improved regex (format: XXX/XX RXX or XXX/XXrXX)
-    size_pattern = r'(\d{3}/\d{2}\s?R?\s?\d{2})'
+    # Updated to handle more variations: 165/60R14, 195/65 R 15, 205/55R16, etc.
+    size_pattern = r'(\d{2,3}[/]\d{2}\s?[RrXx]?\s?\d{1,2})'
     size_match = re.search(size_pattern, name, re.IGNORECASE)
     size = size_match.group(1) if size_match else "Unknown"
     
     # Clean size format
-    size = re.sub(r'\s+', '', size).replace('r', 'R').replace('R', 'R')
+    if size != "Unknown":
+        size = re.sub(r'\s+', '', size).upper().replace('r', 'R').replace('X', 'R')
+        if 'R' not in size and '/' in size:
+            # Add R if missing (e.g., 205/55 16 -> 205/55R16)
+            parts = size.split('/')
+            if len(parts) == 2:
+                size = f"{parts[0]}/{parts[1][:2]}R{parts[1][2:]}"
+    
+    print(f"   Brand: {brand}, Size: {size}")
     
     # Remove common prefixes and tire size to extract product name
-    clean_name = name.replace("Pneu", "").replace("CONTINENTAL", "").strip()
+    clean_name = name.replace("Pneu", "").replace("pneu", "").strip()
+    
+    # Remove brand from name
+    for b in brand_patterns:
+        clean_name = clean_name.replace(b, "").replace(b.upper(), "").replace(b.lower(), "")
     
     # Remove the tire size pattern
     if size_match:
-        clean_name = clean_name.replace(size_match.group(1), "").strip()    # Remove speed/load rating patterns (like 91H, 88T, etc.)
-    clean_name = re.sub(r'\b\d{2,3}[A-Z]{1,2}\b', '', clean_name).strip()
+        clean_name = clean_name.replace(size_match.group(1), "").strip()
+    
+    # Remove speed/load rating patterns (like 91H, 88T, 75H XL, etc.)
+    clean_name = re.sub(r'\b\d{2,3}\s?[A-Z]{1,2}\s?(XL|RF|C)?\b', '', clean_name, flags=re.IGNORECASE).strip()
     
     # Remove extra whitespace and clean up
     clean_name = re.sub(r'\s+', ' ', clean_name).strip()
@@ -49,15 +71,18 @@ def extract_tire_info(name):
     if clean_name:
         # Remove leading/trailing non-alphanumeric characters
         clean_name = re.sub(r'^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$', '', clean_name)
-        product_name = clean_name
+        product_name = clean_name if clean_name else name[:50]
     else:
-        product_name = "Continental Tire"
+        product_name = name[:50]
+    
+    full_name = f"{brand} {product_name} {size}".strip()
+    print(f"   Result: {full_name}")
     
     return {
         'brand': brand,
         'name': product_name,
         'size': size,
-        'full_name': f"{brand} {product_name} {size}".strip()
+        'full_name': full_name
     }
 
 def determine_season(name, description):
@@ -70,6 +95,30 @@ def determine_season(name, description):
         return 'summer'
     else:
         return 'all_season'
+
+def determine_category(name, description):
+    """Determine product category from name and description"""
+    text = (str(name) + " " + str(description)).lower()
+    
+    # ONLY these 5 categories are allowed
+    VALID_CATEGORIES = ['tourisme', '4x4', 'agricole', 'utilitaire', 'moto']
+    
+    # Category keywords mapping
+    category_keywords = {
+        'tourisme': ['tourisme', 'tourism', 'passenger', 'car', 'voiture'],
+        '4x4': ['4x4', '4wd', 'suv', 'tout-terrain', 'off-road'],
+        'agricole': ['agricole', 'agricultural', 'farm', 'tracteur', 'tractor'],
+        'utilitaire': ['utilitaire', 'utility', 'commercial', 'van', 'fourgon', 'camionnette'],
+        'moto': ['moto', 'motorcycle', 'scooter', 'bike']
+    }
+    
+    # Check for category keywords
+    for category, keywords in category_keywords.items():
+        if any(keyword in text for keyword in keywords):
+            return category
+    
+    # Default to tourisme if no category found
+    return 'tourisme'
 
 
 # def extract_images_from_excel(excel_file):
@@ -99,100 +148,54 @@ def determine_season(name, description):
 #     #         saved_images[row] = upload_result.get("secure_url")  # save the URL directly
 #             return saved_images
 
-# def extract_images_from_excel(excel_file):
-#     """Extracts images from Excel, uploads each to Cloudinary, and returns row->URL mapping"""
-#     wb = load_workbook(excel_file)
-#     ws = wb.active
-
-#     row_images = {}
-#     for image in ws._images:
-#         try:
-#             row = image.anchor._from.row
-#             if row not in row_images:
-#                 row_images[row] = []
-#             row_images[row].append(image)
-#         except AttributeError:
-#             continue
-
-#     saved_images = {}
-#     for row, images in row_images.items():
-#         if images:
-#             tire_image = images[0]  # only one image per row
-#             img_bytes = tire_image._data()
-#             img_bytes_io = BytesIO(img_bytes)
-
-#             upload_result = cloudinary.uploader.upload(
-#                 img_bytes_io,
-#                 folder="pneushop/uploads/",
-#                 resource_type="image"
-#             )
-
-#             saved_images[row] = upload_result.get("secure_url")  # Cloudinary URL
-
-#     # ✅ Must be OUTSIDE the loop
-#     return saved_images
-
 def extract_images_from_excel(excel_file):
-    """Extracts images from Excel, uploads each to Cloudinary, and returns row->URL mapping"""
+    """Extracts ALL images from ALL sheets (up to 3 per row), uploads to Cloudinary, returns row->[URLs] mapping"""
     wb = load_workbook(excel_file, data_only=True)
-    ws = wb.active
-
-    row_images = {}
-    for image in ws._images:
-        try:
-            row = image.anchor._from.row
-            if row not in row_images:
-                row_images[row] = []
-            row_images[row].append(image)
-        except AttributeError:
-            continue
-
-    saved_images = {}
-    for row, images in row_images.items():
-        if images:
-            tire_image = images[0]  # one per row
-
-            # ✅ Get raw bytes safely
-            if hasattr(tire_image, "_data"):
-                img_bytes = tire_image._data()
-            elif hasattr(tire_image, "ref") and hasattr(tire_image.ref, "blob"):
-                img_bytes = tire_image.ref.blob
-            else:
-                continue  # skip if neither available
-
-            img_bytes_io = BytesIO(img_bytes)
-
-            # ✅ Upload directly to Cloudinary with timeout protection
+    
+    all_saved_images = {}
+    row_offset = 0
+    
+    # Process each sheet
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        
+        row_images = {}
+        for image in ws._images:
             try:
-                import concurrent.futures
-                import threading
-                
-                def upload_with_timeout():
-                    return cloudinary.uploader.upload(
-                        img_bytes_io,
-                        folder="pneushop/uploads/",
-                        resource_type="image",
-                        timeout=10  # 10 second cloudinary timeout
-                    )
-                
-                # Use ThreadPoolExecutor with timeout
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(upload_with_timeout)
-                    try:
-                        upload_result = future.result(timeout=15)  # 15 second timeout
-                        saved_images[row] = upload_result.get("secure_url")
-                        print(f"✅ Uploaded image for row {row}")
-                    except concurrent.futures.TimeoutError:
-                        print(f"⚠️ Cloudinary upload timeout for row {row}")
-                        continue
-                
-            except Exception as e:
-                # If Cloudinary upload fails (network issue, config, etc.),
-                # skip the image but continue processing other rows.
-                print(f"⚠️ Cloudinary upload failed for row {row}: {e}")
+                row = image.anchor._from.row
+                if row not in row_images:
+                    row_images[row] = []
+                row_images[row].append(image)
+            except AttributeError:
                 continue
 
-    return saved_images
+        # Upload images to Cloudinary
+        for row, images in row_images.items():
+            if images:
+                # Process up to 3 images per row
+                uploaded_urls = []
+                for idx, tire_image in enumerate(images[:3]):  # Max 3 images
+                    try:
+                        img_bytes = tire_image._data()
+                        img_bytes_io = BytesIO(img_bytes)
+
+                        upload_result = cloudinary.uploader.upload(
+                            img_bytes_io,
+                            folder="pneushop/uploads/",
+                            resource_type="image"
+                        )
+                        uploaded_urls.append(upload_result.get("secure_url"))
+                    except Exception as e:
+                        continue
+                
+                # Store with adjusted row number (accounting for multiple sheets)
+                all_saved_images[row + row_offset] = uploaded_urls
+        
+        # Update offset for next sheet (number of rows in current sheet)
+        row_offset += ws.max_row
+
+    print(f"✅ Extracted and uploaded {sum(len(urls) for urls in all_saved_images.values())} images from {len(all_saved_images)} products")
+    return all_saved_images
 
 
 @api_view(['POST'])
@@ -240,10 +243,24 @@ def import_products_excel(request):
                 tmp.write(chunk)
             temp_path = tmp.name
 
-        # Load Excel data first
+        # Load Excel data first - handle multiple sheets
         try:
-            df = pd.read_excel(temp_path)
-            print(f"✅ Successfully loaded Excel file with {len(df)} rows")
+            # Read all sheets
+            excel_data = pd.read_excel(temp_path, sheet_name=None)  # Returns dict of all sheets
+            
+            if not excel_data:
+                return Response({
+                    'error': 'Excel file has no sheets',
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Combine all sheets into one dataframe
+            df = pd.concat(excel_data.values(), ignore_index=True)
+            sheet_count = len(excel_data)
+            
+            print(f"✅ Successfully loaded Excel file with {sheet_count} sheet(s) and {len(df)} total rows")
+            print(f"📋 Columns found in Excel: {list(df.columns)}")
+            print(f"📊 First few rows sample:")
+            print(df.head(3))
         except Exception as e:
             return Response({
                 'error': f'Failed to read Excel file: {str(e)}',
@@ -252,8 +269,8 @@ def import_products_excel(request):
         
         # Extract images with timeout protection (reset row_images)
         
-        # Check if we should process images (based on file size and server capacity)
-        process_images = (df is not None and len(df) < 50)  # Only process images for smaller files
+        # Extract images for all files (removed row limit check)
+        process_images = True  # Always process images
         
         if process_images:
             try:
@@ -265,32 +282,46 @@ def import_products_excel(request):
                 row_images = {}
                 import traceback
                 print(f"Image extraction traceback: {traceback.format_exc()}")
-        else:
-            print(f"⚠️ File has {len(df)} rows - skipping image extraction to prevent timeout")
         
         # Handle both old and new column formats
-        # Check if we have the original format first
-        if 'Unnamed: 0' in df.columns and 'PRIX TTC' in df.columns:
-            # Original format - rename for consistency
-            df = df.rename(columns={'Unnamed: 0': 'NOM'})
-        else:
-            # New format - normalize column names
-            df.columns = [str(c).strip().upper() for c in df.columns]
+        # Normalize column names first
+        print(f"🔧 Original columns: {list(df.columns)}")
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        print(f"🔧 Normalized columns: {list(df.columns)}")
+        
+        # Handle REFERNECE column (typo in Excel) - rename to REFERENCE
+        if 'REFERNECE' in df.columns:
+            df = df.rename(columns={'REFERNECE': 'REFERENCE'})
+            print(f"✅ Fixed REFERNECE typo → REFERENCE")
+        
+        # Handle Unnamed: 0 column (appears when concatenating sheets)
+        if 'UNNAMED: 0' in df.columns:
+            if 'REFERENCE' not in df.columns and 'NOM' not in df.columns:
+                # Only use it as NOM if no other name column exists
+                df = df.rename(columns={'UNNAMED: 0': 'NOM'})
+                print(f"✅ Renamed UNNAMED: 0 → NOM")
+            else:
+                # Drop it - it's probably sheet names, not product data
+                df = df.drop(columns=['UNNAMED: 0'])
+                print(f"✅ Dropped UNNAMED: 0 column (contains sheet names, not product data)")
 
-        required_columns = ['NOM', 'PRIX TTC']  # DESCRIPTION is optional
-        missing = [c for c in required_columns if c not in df.columns]
-        if missing:
+        # Required: either NOM or REFERENCE, and PRIX TTC
+        has_name = 'NOM' in df.columns or 'REFERENCE' in df.columns
+        has_price = 'PRIX TTC' in df.columns
+        
+        if not has_price:
             return Response({
-                'error': f'Missing columns: {missing}',
-                'columns_found': list(df.columns),
-                'note': 'Expected columns: NOM (product name), PRIX TTC (price), DESCRIPTION (optional)'
+                'error': 'Missing required column: PRIX TTC',
+                'columns_found': list(df.columns)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        if not has_name:
+            return Response({
+                'error': 'Missing product name column (expected NOM or REFERENCE)',
+                'columns_found': list(df.columns)
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create/get default category
-        category, _ = Category.objects.get_or_create(
-            name='Continental',
-            defaults={'slug': 'continental', 'description': 'Pneus Continental - qualité européenne'}
-        )
+        # Categories will be created dynamically per product based on type
 
         # Update variables (initialized earlier)
         batch_size = 20  # Process 20 rows at a time to prevent timeout
@@ -313,20 +344,34 @@ def import_products_excel(request):
             for index in range(batch_start, batch_end):
                 row = df.iloc[index]
                 try:
-                    # Skip empty rows
-                    if pd.isna(row['NOM']) or pd.isna(row['PRIX TTC']):
+                    # Get product name from REFERENCE or NOM column
+                    product_name = None
+                    if 'REFERENCE' in df.columns and not pd.isna(row['REFERENCE']):
+                        product_name = str(row['REFERENCE']).strip()
+                    elif 'NOM' in df.columns and not pd.isna(row['NOM']):
+                        product_name = str(row['NOM']).strip()
+                    
+                    # Debug: print what we got from Excel
+                    print(f"\n--- Row {index + 1} ---")
+                    print(f"Product Name from Excel: '{product_name}'")
+                    if 'REFERENCE' in df.columns:
+                        print(f"REFERENCE column value: '{row['REFERENCE']}'")
+                    if 'NOM' in df.columns:
+                        print(f"NOM column value: '{row['NOM']}'")
+                    print(f"PRIX TTC: {row.get('PRIX TTC', 'N/A')}")
+                    print(f"All row data: {dict(row)}")
+                    
+                    # Skip if no valid product name or price
+                    if not product_name or pd.isna(row['PRIX TTC']):
+                        print(f"❌ Skipping row {index + 1}: Missing name or price")
                         continue
 
-                    # Only print progress every 10 rows to reduce log spam
-                    if (index + 1) % 10 == 0 or index == 0:
-                        print(f"📝 Processing row {index + 1} of {total_rows}...")
-
-                    # Validate and clean product data
-                    product_name = str(row['NOM']).strip()
-                    if not product_name or len(product_name) < 2:
+                    # Validate product name
+                    if len(product_name) < 2:
                         errors.append(f"Row {index + 1}: Invalid product name")
                         continue
                         
+                    # Validate price
                     price = float(row['PRIX TTC'])
                     if price <= 0:
                         errors.append(f"Row {index + 1}: Invalid price: {price}")
@@ -336,34 +381,37 @@ def import_products_excel(request):
                     errors.append(f"Row {index + 1}: Data validation error: {e}")
                     continue
 
-                # Handle optional DESCRIPTION column
+                # Handle optional DESCRIPTION column - preserve complete multi-line text
                 description = ""
                 if 'DESCRIPTION' in df.columns and not pd.isna(row['DESCRIPTION']):
-                    description = str(row['DESCRIPTION'])[:500]  # Limit description length
+                    # Keep full description including newlines and formatting
+                    description = str(row['DESCRIPTION']).strip()
                 
-                # Get image path if available
-                image_path = row_images.get(index + 2, None)
+                # Get image URLs if available (now returns list of URLs)
+                image_urls = row_images.get(index + 2, [])
+                image_1 = image_urls[0] if len(image_urls) > 0 else ""
+                image_2 = image_urls[1] if len(image_urls) > 1 else ""
+                image_3 = image_urls[2] if len(image_urls) > 2 else ""
 
                 # Extract tire info & generate unique slug
                 try:
                     tire_info = extract_tire_info(product_name)
                     
-                    # Validate tire info
-                    if not tire_info.get('name') or len(tire_info['name']) < 2:
-                        tire_info['name'] = product_name[:50]  # Fallback to original name
+                    # Use the FULL REFERENCE as the product name (not the cleaned version)
+                    # Only extract brand and size, keep original name intact
+                    product_display_name = product_name  # Use full reference as-is
                         
                 except Exception as e:
                     print(f"⚠️ Tire info extraction failed for row {index + 1}: {e}")
                     tire_info = {
-                        'brand': 'Continental',
-                        'name': product_name[:50],
+                        'brand': 'Laufenn',
                         'size': 'Unknown',
-                        'full_name': product_name[:50]
                     }
+                    product_display_name = product_name
 
-                # Generate unique slug
+                # Generate unique slug from full product name
                 try:
-                    base_slug = slugify(tire_info['full_name'])
+                    base_slug = slugify(product_display_name)
                     if not base_slug:  # If slugify returns empty string
                         base_slug = f"product-{index}"
                         
@@ -384,23 +432,45 @@ def import_products_excel(request):
                     season = 'all_season'  # Safe fallback
                     print(f"⚠️ Season determination failed for row {index + 1}: {e}")
 
+                # Determine category dynamically
+                try:
+                    category_name = determine_category(product_name, description)
+                    category_slug = slugify(category_name)
+                    
+                    category, _ = Category.objects.get_or_create(
+                        slug=category_slug,  # Match on slug (unique field)
+                        defaults={
+                            'name': category_name,
+                            'description': f'Pneus {category_name}'
+                        }
+                    )
+                except Exception as e:
+                    # Fallback to default category
+                    category, _ = Category.objects.get_or_create(
+                        slug='tourisme',  # Match on slug
+                        defaults={'name': 'tourisme', 'description': 'Pneus tourisme'}
+                    )
+                    print(f"⚠️ Category determination failed for row {index + 1}: {e}")
+
                 # Create product with error handling
                 try:
                     product = Product.objects.create(
-                        name=tire_info['name'][:100],  # Ensure field length limits
-                        brand=tire_info['brand'][:50],
-                        size=tire_info['size'][:20],
+                        name=product_display_name[:200],  # Use full REFERENCE as product name
+                        brand=tire_info['brand'][:100],  # Brand limit
+                        size=tire_info['size'][:100],  # Increased size limit
                         slug=slug,
-                        description=description[:500],
+                        description=description,  # Full multi-line description preserved
                         price=Decimal(str(price)),
                         category=category,
                         season=season,
                         stock=10,
                         is_active=True,
-                        image=image_path or ""  # Handle None image_path
+                        image=image_1,      # First image
+                        image_2=image_2,    # Second image (optional)
+                        image_3=image_3     # Third image (optional)
                     )
                     created_products.append(product.name)
-                    print(f"✅ Created product: {product.name}")
+                    print(f"✅ Created product: {product.name} | Category: {category.name} | Images: {len([i for i in [image_1, image_2, image_3] if i])}")
                     
                 except Exception as db_error:
                     error_msg = f"Row {index + 1}: Database error creating product: {db_error}"

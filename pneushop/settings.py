@@ -132,6 +132,12 @@ DATABASES = {
     )
 }
 
+# Fix Neon.tech serverless connection issues
+DATABASES['default']['CONN_MAX_AGE'] = 60  # Reuse connections for 60s
+DATABASES['default']['OPTIONS'] = {
+    'connect_timeout': 10,
+}
+
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -208,20 +214,13 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Email configuration (for development/student project)
-# Choose email backend - set EMAIL_BACKEND in .env file
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_HOST_USER = 'simontechengineer@gmail.com'
-EMAIL_HOST_PASSWORD = 'okrb rvmi rhky tjz               '
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-DEFAULT_FROM_EMAIL = 'simontechengineer@gmail.com'
-# Alternative SMTP providers settings (uncomment and configure as needed):
-# 
-# Gmail: EMAIL_HOST='smtp.gmail.com', EMAIL_PORT=587, EMAIL_USE_TLS=True
-# Outlook: EMAIL_HOST='smtp-mail.outlook.com', EMAIL_PORT=587, EMAIL_USE_TLS=True
-# SendGrid: EMAIL_HOST='smtp.sendgrid.net', EMAIL_PORT=587, EMAIL_USE_TLS=True
-# Yahoo: EMAIL_HOST='smtp.mail.yahoo.com', EMAIL_PORT=587, EMAIL_USE_TLS=True
+# AWS SES Email Configuration
+EMAIL_BACKEND = 'django_ses.SESBackend'
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+AWS_SES_REGION_NAME = config('AWS_SES_REGION_NAME', default='eu-west-3')
+AWS_SES_REGION_ENDPOINT = config('AWS_SES_REGION_ENDPOINT', default='email.eu-west-3.amazonaws.com')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yourdomain.com')  # Must be verified in AWS SES
 
 # Password reset token validity (in seconds)
 PASSWORD_RESET_TIMEOUT = 3600  # 1 hour
