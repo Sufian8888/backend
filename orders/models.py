@@ -4,10 +4,10 @@ from django.conf import settings
 class Order(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
+        ('confirmed', 'Confirmed'),
         ('processing', 'Processing'),
         ('shipped', 'Shipped'),
         ('delivered', 'Delivered'),
-        ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     ]
     

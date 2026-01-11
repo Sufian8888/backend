@@ -303,6 +303,27 @@ def reports_data(request):
             'commandes': month_orders.get('total_orders', 0) or 0
         })
 
+    # Weekly sales evolution (last 8 weeks)
+    weekly_evolution = []
+    for i in range(7, -1, -1):
+        week_start = today - timedelta(days=today.weekday() + 7*i)
+        week_end = week_start + timedelta(days=6)
+
+        week_orders = o.objects.filter(
+            created_at__date__gte=week_start,
+            created_at__date__lte=week_end,
+            status__in=included_statuses
+        ).aggregate(
+            total_revenue=Sum('total_amount'),
+            total_orders=Count('id')
+        )
+
+        weekly_evolution.append({
+            'semaine': f"S{week_start.strftime('%d/%m')}",
+            'ventes': float(week_orders.get('total_revenue', 0) or 0),
+            'commandes': week_orders.get('total_orders', 0) or 0
+        })
+
     # Top products by revenue
     top_products = oi.objects.filter(
     order__status__in=included_statuses
@@ -336,6 +357,7 @@ def reports_data(request):
             'produits_vendus': total_products_sold
         },
         'ventes_par_mois': monthly_evolution,
+        'ventes_par_semaine': weekly_evolution,
         'top_produits': [
         {
             'nom': product['product_name'],  # Changed from f-string with brand
