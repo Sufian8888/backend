@@ -14,7 +14,13 @@ class CartView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        cart, created = Cart.objects.get_or_create(user=self.request.user)
+        # Use select_related and prefetch_related to avoid caching issues
+        cart, created = Cart.objects.prefetch_related(
+            'items__product'
+        ).get_or_create(user=self.request.user)
+        # Force refresh from database
+        if not created:
+            cart.refresh_from_db()
         return cart
 
     def finalize_response(self, request, response, *args, **kwargs):

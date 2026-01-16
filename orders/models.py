@@ -22,6 +22,7 @@ class Order(models.Model):
     )
     order_number = models.CharField(max_length=20, unique=True, blank=True)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    delivery_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS, default='pending')
     payment_method = models.CharField(max_length=50, blank=True, null=True)

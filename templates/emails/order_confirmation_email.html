@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirmation de commande</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+        }
+        .header {
+            background-color: #d4881f;
+            color: #ffffff;
+            padding: 20px;
+            text-align: left;
+            font-size: 20px;
+            font-weight: normal;
+        }
+        .content {
+            padding: 30px;
+        }
+        .greeting {
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #333;
+        }
+        .order-info {
+            margin-bottom: 25px;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.6;
+        }
+        .order-number {
+            color: #d4881f;
+            font-weight: bold;
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        .products-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 14px;
+        }
+        .products-table th {
+            background-color: #f8f8f8;
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e0e0e0;
+            font-weight: normal;
+            color: #333;
+        }
+        .products-table td {
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            color: #333;
+        }
+        .products-table td.text-center {
+            text-align: center;
+        }
+        .products-table td.text-right {
+            text-align: right;
+        }
+        .totals-row {
+            background-color: #f8f8f8;
+        }
+        .section-title {
+            color: #d4881f;
+            font-size: 16px;
+            font-weight: bold;
+            margin: 30px 0 20px 0;
+        }
+        .addresses-container {
+            display: table;
+            width: 100%;
+            margin: 20px 0;
+        }
+        .address-column {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
+            padding-right: 15px;
+        }
+        .address-column:last-child {
+            padding-right: 0;
+            padding-left: 15px;
+        }
+        .address-title {
+            color: #d4881f;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .address-content {
+            font-size: 13px;
+            color: #333;
+            line-height: 1.6;
+        }
+        .address-content a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .footer-note {
+            margin-top: 30px;
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+        }
+        .footer-note a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        @media only screen and (max-width: 600px) {
+            .addresses-container {
+                display: block;
+            }
+            .address-column {
+                display: block;
+                width: 100%;
+                padding: 0;
+                margin-bottom: 20px;
+            }
+            .address-column:last-child {
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            Merci pour votre commande
+        </div>
+        
+        <div class="content">
+            <div class="greeting">
+                Bonjour {{ order.user.first_name|default:order.user.username }},
+            </div>
+            
+            <div class="order-info">
+                Pour information – nous avons reçu votre commande n°{{ order.order_number|default:order.id }}, elle est maintenant en cours de traitement :<br><br>
+                {% if order.payment_method %}{{ order.payment_method }}{% else %}cash_on_delivery{% endif %}
+            </div>
+            
+            <div class="order-number">
+                [Commande n°{{ order.order_number|default:order.id }}] ({{ order.created_at|date:"j F Y" }})
+            </div>
+            
+            <table class="products-table">
+                <thead>
+                    <tr>
+                        <th>Produit</th>
+                        <th class="text-center">Quantité</th>
+                        <th class="text-right">Prix</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in order.items.all %}
+                    <tr>
+                        <td>{{ item.product_name }}</td>
+                        <td class="text-center">{{ item.quantity }}</td>
+                        <td class="text-right">{{ item.total_price|floatformat:3 }} TND</td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="totals-row">
+                        <td colspan="2">Sous-total :</td>
+                        <td class="text-right">{{ subtotal|floatformat:3 }} TND</td>
+                    </tr>
+                    <tr class="totals-row">
+                        <td colspan="2">Expédition :</td>
+                        <td class="text-right">{{ order.delivery_cost|default:0|floatformat:3 }} TND <small>via Forfait</small></td>
+                    </tr>
+                    <tr class="totals-row">
+                        <td colspan="2">Moyen de paiement :</td>
+                        <td class="text-right">{% if order.payment_method %}{{ order.payment_method }}{% else %}cash_on_delivery{% endif %}</td>
+                    </tr>
+                    <tr class="totals-row">
+                        <td colspan="2"><strong>Total :</strong></td>
+                        <td class="text-right"><strong>{{ order.total_amount|floatformat:3 }} TND</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="section-title">Adresse de facturation</div>
+            <div class="section-title" style="display: inline; margin-left: 180px;">Adresse de livraison</div>
+            
+            <div class="addresses-container">
+                <div class="address-column">
+                    <div class="address-content">
+                        {{ order.billing_address.first_name|default:"" }} {{ order.billing_address.last_name|default:"" }}<br>
+                        {{ order.billing_address.phone|default:"" }}<br>
+                        <a href="mailto:{{ order.user.email }}">{{ order.user.email }}</a>
+                    </div>
+                </div>
+                
+                <div class="address-column">
+                    <div class="address-content">
+                        {{ order.shipping_address.address|default:"" }}<br>
+                        {{ order.shipping_address.city|default:"" }}{% if order.shipping_address.postal_code %}, {{ order.shipping_address.postal_code }}{% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="footer-note">
+                Merci d'utiliser <a href="{{ site_url }}">{{ site_url|cut:"https://"|cut:"http://" }}</a> !
+            </div>
+        </div>
+    </div>
+</body>
+</html>

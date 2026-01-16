@@ -14,6 +14,7 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True)
     order_number = serializers.CharField(read_only=True)  # Make read-only to auto-generate
     warranty = serializers.JSONField(required=False, allow_null=True, write_only=True)
+    delivery_cost = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
 
     class Meta:
         model = Order
@@ -181,16 +182,32 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             
             if not existing_delivery:
                 try:
+                    # Get client name from the order's shipping address
+                    client_name = "Client inconnu"
+                    if instance.order:
+                        shipping_address = instance.order.shipping_address
+                        if shipping_address:
+                            first_name = shipping_address.get('first_name', '')
+                            last_name = shipping_address.get('last_name', '')
+                            client_name = f"{first_name} {last_name}".strip()
+                        
+                        # Fallback to user name if shipping address doesn't have name
+                        if not client_name or client_name == "":
+                            if instance.order.user:
+                                first_name = instance.order.user.first_name or ""
+                                last_name = instance.order.user.last_name or ""
+                                client_name = f"{first_name} {last_name}".strip() or instance.order.user.email
+                    
                     new_delivery = Delivery.objects.create(
                         purchase_order=instance,
                         order=instance.order,  # This can be null
-                        client=f"Purchase Order ({delivery_identifier})",
+                        client=client_name,
                         adresse="Entrepôt principal",  # Your warehouse address
                         transporteur="À assigner",
                         statut="prepare",
                         colis=sum(item.quantite for item in instance.articles.all())
                     )
-                    print(f"SUCCESS: Created delivery {new_delivery.id} for PO {instance.id}")
+                    print(f"SUCCESS: Created delivery {new_delivery.id} for PO {instance.id} - Client: {client_name}")
                 except Exception as e:
                     print(f"ERROR: Failed to create delivery for PO {instance.id}: {e}")
             else:

@@ -222,5 +222,8 @@ AWS_SES_REGION_NAME = config('AWS_SES_REGION_NAME', default='eu-west-3')
 AWS_SES_REGION_ENDPOINT = config('AWS_SES_REGION_ENDPOINT', default='email.eu-west-3.amazonaws.com')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yourdomain.com')  # Must be verified in AWS SES
 
+# Frontend URL for email links (password reset, etc.)
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
 # Password reset token validity (in seconds)
 PASSWORD_RESET_TIMEOUT = 3600  # 1 hour

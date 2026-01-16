@@ -14,7 +14,35 @@ from .permanent_permissions import IsAdmin
 
 from .models import CustomUser
 from .serializers import UserRegistrationSerializer, UserLoginSerializer, UserSerializer
-from .email_utils import send_welcome_email, send_password_reset_email
+from .email_utils import send_welcome_email, send_password_reset_email, send_verification_email
+
+# Helper function to auto-detect frontend URL from request
+def get_frontend_url(request):
+    """
+    Auto-detect frontend URL from request headers.
+    Priority: 1) Origin header, 2) Referer header, 3) Configured FRONTEND_URL
+    """
+    frontend_url = None
+    
+    # Try to get from Origin header (most reliable)
+    if 'HTTP_ORIGIN' in request.META:
+        frontend_url = request.META['HTTP_ORIGIN']
+        print(f"✅ Detected frontend URL from Origin: {frontend_url}")
+    
+    # Fallback to Referer header
+    elif 'HTTP_REFERER' in request.META:
+        referer = request.META['HTTP_REFERER']
+        from urllib.parse import urlparse
+        parsed = urlparse(referer)
+        frontend_url = f"{parsed.scheme}://{parsed.netloc}"
+        print(f"✅ Detected frontend URL from Referer: {frontend_url}")
+    
+    # Final fallback to configured setting
+    if not frontend_url:
+        frontend_url = settings.FRONTEND_URL
+        print(f"⚠️ Using fallback FRONTEND_URL from settings: {frontend_url}")
+    
+    return frontend_url
 # from django.core.mail import send_mail
 # from django.conf import settings
 
@@ -67,32 +95,19 @@ class RegisterView(generics.CreateAPIView):
         user.verification_code = verification_code
         user.save()
         
-        # Send welcome email with verification
-        # try:
-        #     send_welcome_email(user)
-        #     print(f"Welcome email sent to {user.email}")
-        # except Exception as e:
-        #     print(f"Erreur envoi email de bienvenue: {e}")
-        
-        # # Send verification email
-        # try:
-        #     send_mail(
-        #         'Vérification de votre compte PneuShop',
-        #         f'Votre code de vérification est: {verification_code}',
-        #         settings.DEFAULT_FROM_EMAIL,
-        #         [user.email],
-        #         fail_silently=True,
-        #     )
-        #     print(f"Verification email sent to {user.email}")
-        # except Exception as e:
-        #     print(f"Erreur envoi email de vérification: {e}")
+        # Send verification email (NOT welcome email yet)
+        try:
+            frontend_url = get_frontend_url(request)
+            send_verification_email(user, verification_code, frontend_url)
+            print(f"✅ Verification email sent to {user.email}")
+        except Exception as e:
+            print(f"❌ Failed to send verification email: {e}")
         
         return Response({
             'success': True,
-            'message': 'Compte créé avec succès. Vérifiez votre email.',
+            'message': 'Compte créé avec succès. Vérifiez votre email pour activer votre compte.',
             'user_id': user.id,
-            'user': UserSerializer(user).data  # Add user data
-
+            'user': UserSerializer(user).data
         }, status=status.HTTP_201_CREATED)
 
 @api_view(['POST'])
@@ -121,13 +136,26 @@ def verify_email(request):
             user.is_verified = True
             user.verification_code = ''
             user.save()
-            return Response({'message': 'Email vérifié avec succès.'})
+            
+            # NOW send the welcome email after verification
+            try:
+                send_welcome_email(user)
+                print(f"✅ Welcome email sent to verified user: {user.email}")
+            except Exception as e:
+                print(f"⚠️  Email verified but welcome email failed: {e}")
+            
+            return Response({
+                'success': True,
+                'message': 'Email vérifié avec succès. Bienvenue chez PneuShop!'
+            })
         else:
-            return Response({'error': 'Code de vérification incorrect.'}, 
-                          status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'error': 'Code de vérification incorrect.'
+            }, status=status.HTTP_400_BAD_REQUEST)
     except CustomUser.DoesNotExist:
-        return Response({'error': 'Utilisateur non trouvé.'}, 
-                      status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'error': 'Utilisateur non trouvé.'
+        }, status=status.HTTP_404_NOT_FOUND)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -140,8 +168,12 @@ def forgot_password(request):
         token = default_token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         
+        # Auto-detect frontend URL from request
+        frontend_url = get_frontend_url(request)
+        
         # Create reset URL
-        reset_url = f"http://localhost:3000/auth/reset-password?uid={uid}&token={token}"
+        reset_url = f"{frontend_url}/auth/reset-password?uid={uid}&token={token}"
+        print(f"🔗 Reset URL: {reset_url}")
         
         # Get client IP for security
         request_ip = request.META.get('HTTP_X_FORWARDED_FOR', 
@@ -150,9 +182,9 @@ def forgot_password(request):
         # Send password reset email
         try:
             send_password_reset_email(user, reset_url, token, request_ip)
-            print(f"Password reset email sent to {user.email}")
+            print(f"✉️ Password reset email sent to {user.email}")
         except Exception as e:
-            print(f"Erreur envoi email de réinitialisation: {e}")
+            print(f"❌ Erreur envoi email de réinitialisation: {e}")
         
         return Response({
             'message': 'Instructions de réinitialisation envoyées par email.',

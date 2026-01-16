@@ -18,11 +18,19 @@ class Cart(models.Model):
 
     @property
     def total_items(self):
-        return sum(item.quantity for item in self.items.all())
+        # Force fresh query by using .iterator() to avoid caching
+        from django.db.models import Sum
+        result = self.items.aggregate(total=Sum('quantity'))
+        return result['total'] or 0
 
     @property
     def total_price(self):
-        return sum(item.total_price for item in self.items.all())
+        # Force fresh query and calculate total
+        from django.db.models import F, Sum
+        result = self.items.aggregate(
+            total=Sum(F('quantity') * F('product__price'))
+        )
+        return result['total'] or 0
 
 class CartItem(models.Model):
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items', verbose_name="Panier")

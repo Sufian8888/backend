@@ -99,6 +99,7 @@ class OrderListCreateView(generics.ListCreateAPIView):
         from django.utils import timezone
         from products.models import Product
         from django.db import transaction
+        from accounts.email_utils import send_order_confirmation_email
         
         with transaction.atomic():
             order = serializer.save(user=self.request.user)
@@ -130,6 +131,12 @@ class OrderListCreateView(generics.ListCreateAPIView):
             if not order.tracking_number:
                 order.tracking_number = f"TRK-{order.id:06d}"
                 order.save()
+            
+            # Send order confirmation email
+            try:
+                send_order_confirmation_email(order)
+            except Exception as e:
+                print(f"[ORDER CREATE] Failed to send confirmation email: {str(e)}")
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):
