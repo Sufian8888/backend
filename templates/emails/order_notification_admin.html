@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nouvelle Commande - {{ site_name }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            color: #ffd700;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }
+        .content {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+        }
+        .alert-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .customer-info {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .customer-info h3 {
+            margin-top: 0;
+            color: #ffd700;
+        }
+        .info-row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .info-label {
+            font-weight: bold;
+            min-width: 150px;
+            color: #666;
+        }
+        .info-value {
+            color: #333;
+        }
+        .order-summary {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .order-summary h3 {
+            margin-top: 0;
+            color: #ffd700;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th {
+            background: #ffd700;
+            color: #000000;
+            padding: 12px;
+            text-align: left;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background: #f5f5f5;
+        }
+        .total-row {
+            background: #e7f3ff;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            background: #ffd700;
+            color: #000000;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            color: #888;
+            font-size: 12px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status-confirmed {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔔 Nouvelle Commande Reçue!</h1>
+        <p style="font-size: 18px; margin: 10px 0 0 0;">Commande n°{{ order.id }}</p>
+    </div>
+    
+    <div class="content">
+        <div class="alert-box">
+            <strong>⚠️ Action Requise:</strong> Une nouvelle commande a été passée et nécessite votre attention.
+        </div>
+
+        <!-- Customer Information -->
+        <div class="customer-info">
+            <h3>👤 Informations Client</h3>
+            <div class="info-row">
+                <span class="info-label">Nom complet:</span>
+                <span class="info-value">{{ customer_name }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Email:</span>
+                <span class="info-value">{{ customer_email }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Téléphone:</span>
+                <span class="info-value">{{ customer_phone }}</span>
+            </div>
+            {% if order.user.address %}
+            <div class="info-row">
+                <span class="info-label">Adresse:</span>
+                <span class="info-value">{{ order.user.address }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Order Information -->
+        <div class="order-summary">
+            <h3>📦 Détails de la Commande</h3>
+            <div class="info-row">
+                <span class="info-label">N° Commande:</span>
+                <span class="info-value">#{{ order.id }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Date:</span>
+                <span class="info-value">{{ order.created_at|date:"d/m/Y à H:i" }}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Statut:</span>
+                <span class="info-value">
+                    <span class="status-badge status-{{ order.status }}">
+                        {% if order.status == 'pending' %}En attente{% elif order.status == 'confirmed' %}Confirmée{% elif order.status == 'shipped' %}Expédiée{% elif order.status == 'delivered' %}Livrée{% else %}{{ order.status }}{% endif %}
+                    </span>
+                </span>
+            </div>
+            {% if order.delivery_address %}
+            <div class="info-row">
+                <span class="info-label">Adresse de livraison:</span>
+                <span class="info-value">{{ order.delivery_address }}</span>
+            </div>
+            {% endif %}
+            {% if order.notes %}
+            <div class="info-row">
+                <span class="info-label">Notes:</span>
+                <span class="info-value">{{ order.notes }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Order Items -->
+        <div class="order-summary">
+            <h3>🛒 Articles Commandés</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Produit</th>
+                        <th>Prix</th>
+                        <th>Qté</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in order.items.all %}
+                    <tr>
+                        <td>
+                            <strong>{{ item.product.name }}</strong><br>
+                            <small style="color: #666;">Réf: {{ item.product.reference }}</small>
+                        </td>
+                        <td>{{ item.price|floatformat:3 }} DT</td>
+                        <td>{{ item.quantity }}</td>
+                        <td><strong>{{ item.total|floatformat:3 }} DT</strong></td>
+                    </tr>
+                    {% endfor %}
+                    <tr>
+                        <td colspan="3" style="text-align: right;"><strong>Sous-total:</strong></td>
+                        <td><strong>{{ subtotal|floatformat:3 }} DT</strong></td>
+                    </tr>
+                    {% if order.delivery_cost %}
+                    <tr>
+                        <td colspan="3" style="text-align: right;"><strong>Frais de livraison:</strong></td>
+                        <td><strong>{{ order.delivery_cost|floatformat:3 }} DT</strong></td>
+                    </tr>
+                    {% endif %}
+                    <tr class="total-row">
+                        <td colspan="3" style="text-align: right;">TOTAL:</td>
+                        <td>{{ order.total_amount|floatformat:3 }} DT</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="{{ site_url }}/admin/orders/order/{{ order.id }}/change/" class="btn">
+                Voir la commande dans l'admin →
+            </a>
+        </div>
+
+        <div class="footer">
+            <p>Ceci est un email automatique de notification pour les administrateurs.</p>
+            <p>{{ site_name }} - Gestion des Commandes</p>
+            <p>Date: {{ order.created_at|date:"d/m/Y à H:i" }}</p>
+        </div>
+    </div>
+</body>
+</html>

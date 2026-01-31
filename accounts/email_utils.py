@@ -115,7 +115,10 @@ def send_password_reset_email(user, reset_url, token, request_ip=None):
         return False
 
 def send_order_confirmation_email(order):
-    """Send order confirmation email with HTML template"""
+    """
+    Send order confirmation email with HTML template
+    Sends to BOTH customer AND admin
+    """
     try:
         subject = f'Confirmation de commande n°{order.id} - PneuShop'
         
@@ -136,7 +139,7 @@ def send_order_confirmation_email(order):
         # Create plain text version
         text_content = strip_tags(html_content)
         
-        # Send email
+        # SEND TO CUSTOMER
         send_mail(
             subject=subject,
             message=text_content,
@@ -145,8 +148,34 @@ def send_order_confirmation_email(order):
             html_message=html_content,
             fail_silently=False,
         )
+        logger.info(f"✅ Order confirmation email sent to CUSTOMER: {order.user.email} for order #{order.id}")
         
-        logger.info(f"Order confirmation email sent to {order.user.email} for order #{order.id}")
+        # SEND TO ADMIN (notification)
+        admin_subject = f'🔔 Nouvelle commande n°{order.id} - {order.user.get_full_name()}'
+        admin_html = render_to_string('emails/order_notification_admin.html', {
+            'order': order,
+            'site_url': frontend_url,
+            'site_name': 'PneuShop',
+            'subtotal': subtotal,
+            'customer_name': order.user.get_full_name(),
+            'customer_email': order.user.email,
+            'customer_phone': order.user.phone_number if hasattr(order.user, 'phone_number') else 'N/A'
+        })
+        admin_text = strip_tags(admin_html)
+        
+        # Get admin email from settings
+        admin_email = getattr(settings, 'ADMIN_EMAIL', 'admin@pneushop.tn')
+        
+        send_mail(
+            subject=admin_subject,
+            message=admin_text,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[admin_email],
+            html_message=admin_html,
+            fail_silently=False,
+        )
+        logger.info(f"✅ Order notification email sent to ADMIN: {admin_email} for order #{order.id}")
+        
         return True
         
     except Exception as e:

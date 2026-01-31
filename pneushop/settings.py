@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'favorites',
     'orders',
     "suppliers",
+    'purchases',
     'cloudinary',
     'cloudinary_storage',
 ]
@@ -224,6 +225,9 @@ DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yourdomain.co
 
 # Frontend URL for email links (password reset, etc.)
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
+
+# Admin email for notifications (order notifications, etc.)
+ADMIN_EMAIL = config('ADMIN_EMAIL', default='admin@pneushop.tn')
 
 # Password reset token validity (in seconds)
 PASSWORD_RESET_TIMEOUT = 3600  # 1 hour

@@ -15,10 +15,13 @@ urlpatterns = [
     path('api/cart/', include('cart.urls')),
     path('api/favorites/', include('favorites.urls')),
     path('api/', include('accounts.urls')),
-    path('api/orders/', include('orders.urls')),
-    path("api/", include("orders.urls")),
-
+    
+    # IMPORTANT: purchases MUST come before orders to avoid routing conflicts
     path("api/", include("suppliers.urls")),
+    path("api/", include("purchases.urls")),  # ← Purchases FIRST (buying FROM suppliers)
+    
+    path('api/orders/', include('orders.urls')),
+    path("api/", include("orders.urls")),      # ← Orders SECOND (selling TO clients)
 
     path('test-email/', views.index, name='test-email'),
 ]
