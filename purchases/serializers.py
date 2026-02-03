@@ -124,6 +124,8 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
         )
         
         # Create items and UPDATE STOCK (we're buying from supplier - ADD to stock)
+        total_amount = 0  # Track total for the purchase order
+        
         for item_data in items_data:
             # Prefer id (PK) first (frontend sends productId), then reference
             product = None
@@ -145,6 +147,17 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
                 )
 
             quantity = int(item_data.get('quantite', item_data.get('quantity', 1)))
+            unit_price = float(item_data.get('prix_unitaire', item_data.get('priceHT', 0)))
+            discount = float(item_data.get('discount', 0))
+            item_total = float(item_data.get('total_ht', item_data.get('totalHT', 0)))
+            
+            # If item_total is not provided, calculate it
+            if item_total == 0:
+                base_total = unit_price * quantity
+                item_total = base_total - (base_total * discount / 100)
+            
+            # Add to purchase order total
+            total_amount += item_total
             
             # Create the purchase order item
             PurchaseOrderItem.objects.create(
@@ -152,10 +165,10 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
                 product=product,
                 reference=item_data.get('reference', ''),
                 designation=item_data.get('nom', item_data.get('designation', '')),
-                unit_price_ht=item_data.get('prix_unitaire', item_data.get('priceHT', 0)),
+                unit_price_ht=unit_price,
                 quantity=quantity,
-                discount=item_data.get('discount', 0),
-                total_ht=item_data.get('total_ht', item_data.get('totalHT', 0)),
+                discount=discount,
+                total_ht=item_total,
                 received_quantity=quantity  # Mark as received immediately
             )
             
@@ -164,6 +177,16 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
                 product.stock += quantity  # ADD to existing stock
                 product.save()
                 print(f"✅ Stock updated: {product.reference} - Added {quantity} units. New stock: {product.stock}")
+        
+        # Apply global discount if any
+        global_discount = float(validated_data.get('global_discount', 0))
+        if global_discount > 0:
+            total_amount = total_amount - (total_amount * global_discount / 100)
+        
+        # Update the purchase order total
+        purchase_order.total = total_amount
+        purchase_order.subtotal = total_amount
+        purchase_order.save()
         
         # Update supplier orders count
         supplier.orders_count += 1

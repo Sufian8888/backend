@@ -14,7 +14,8 @@ urlpatterns = [
     path('import/preview/', import_views.import_preview, name='import_preview'),
     path('site-settings/', views.site_settings, name='site_settings'),
 
+    # Product update endpoint - must come before slug patterns
+    path('<int:id>/', views.ProductUpdateView.as_view(), name='product_update'),
     path('<slug:slug>/', views.ProductDetailView.as_view(), name='product_detail'), 
-    path('<int:id>/', views.ProductDetailView.as_view(), name='product_detail'),
 
 ]
