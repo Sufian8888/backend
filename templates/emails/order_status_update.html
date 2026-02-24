@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mise à jour de commande</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 20px auto;
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+        }
+        .header {
+            background-color: #000000;
+            color: #ffd700;
+            padding: 20px;
+            text-align: left;
+            font-size: 20px;
+            font-weight: normal;
+        }
+        .header span {
+            font-weight: bold;
+        }
+        .content {
+            padding: 30px;
+        }
+        .greeting {
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #333;
+        }
+        .status-badge {
+            display: inline-block;
+            background-color: #ffd700;
+            color: #000;
+            font-weight: bold;
+            font-size: 15px;
+            padding: 8px 20px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .order-info {
+            margin-bottom: 25px;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.6;
+        }
+        .order-number {
+            color: #ffd700;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .products-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 14px;
+        }
+        .products-table th {
+            background-color: #ffd700;
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e0e0e0;
+            font-weight: normal;
+            color: #000000;
+        }
+        .products-table td {
+            padding: 10px 12px;
+            border: 1px solid #e0e0e0;
+            color: #333;
+        }
+        .products-table tr:nth-child(even) td {
+            background-color: #f9f9f9;
+        }
+        .totals {
+            margin-top: 10px;
+            text-align: right;
+            font-size: 14px;
+        }
+        .totals-table {
+            width: 250px;
+            margin-left: auto;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .totals-table td {
+            padding: 5px 10px;
+            color: #333;
+        }
+        .totals-table .total-row td {
+            font-weight: bold;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 8px;
+        }
+        .footer {
+            background-color: #000;
+            color: #aaa;
+            text-align: center;
+            padding: 15px;
+            font-size: 12px;
+        }
+        .footer a {
+            color: #ffd700;
+            text-decoration: none;
+        }
+        .note {
+            background-color: #fffbe6;
+            border-left: 4px solid #ffd700;
+            padding: 10px 15px;
+            margin: 20px 0;
+            font-size: 13px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+<div class="email-container">
+
+    <!-- Header -->
+    <div class="header">
+        <span>{{ site_name }}</span> — Mise à jour de votre commande
+    </div>
+
+    <!-- Body -->
+    <div class="content">
+        <p class="greeting">Bonjour {{ order.user.get_full_name|default:order.user.email }},</p>
+
+        <p style="font-size:14px;color:#333;">
+            Votre commande a été mise à jour. Son nouveau statut est :
+        </p>
+
+        <div class="status-badge">{{ status_label }}</div>
+
+        <div class="order-info">
+            <div>Numéro de commande : <span class="order-number">{{ order.order_number }}</span></div>
+            <div>Date de commande : {{ order.created_at|date:"d/m/Y" }}</div>
+            {% if order.tracking_number %}
+            <div>Numéro de suivi : <strong>{{ order.tracking_number }}</strong></div>
+            {% endif %}
+        </div>
+
+        {% if order.status == 'shipped' %}
+        <div class="note">
+            Votre commande est en route ! Vous recevrez votre colis prochainement.
+            {% if order.tracking_number %}
+            Numéro de suivi : <strong>{{ order.tracking_number }}</strong>
+            {% endif %}
+        </div>
+        {% elif order.status == 'delivered' %}
+        <div class="note">
+            Votre commande a bien été livrée. Merci pour votre confiance !
+        </div>
+        {% elif order.status == 'cancelled' %}
+        <div class="note">
+            Votre commande a été annulée. Si vous avez des questions, n'hésitez pas à nous contacter.
+        </div>
+        {% elif order.status == 'confirmed' %}
+        <div class="note">
+            Votre commande a été confirmée et sera traitée dans les plus brefs délais.
+        </div>
+        {% endif %}
+
+        <!-- Products table -->
+        <table class="products-table">
+            <thead>
+                <tr>
+                    <th>Produit</th>
+                    <th>Qté</th>
+                    <th>Prix unitaire</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in order.items.all %}
+                <tr>
+                    <td>{{ item.product_name }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>{{ item.unit_price }} TND</td>
+                    <td>{{ item.total_price }} TND</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- Totals -->
+        <table class="totals-table">
+            <tr>
+                <td>Sous-total</td>
+                <td>{{ subtotal }} TND</td>
+            </tr>
+            <tr>
+                <td>Livraison</td>
+                <td>{{ order.delivery_cost }} TND</td>
+            </tr>
+            <tr class="total-row">
+                <td>Total TTC</td>
+                <td>{{ order.total_amount }} TND</td>
+            </tr>
+        </table>
+
+        <p style="font-size:13px;color:#666;margin-top:30px;">
+            Pour toute question, contactez-nous à <a href="mailto:contact@pneushop.tn" style="color:#000;">contact@pneushop.tn</a>.
+        </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        &copy; {{ site_name }} — Tous droits réservés<br>
+        <a href="{{ site_url }}">{{ site_url }}</a>
+    </div>
+
+</div>
+</body>
+</html>

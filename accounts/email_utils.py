@@ -181,3 +181,53 @@ def send_order_confirmation_email(order):
     except Exception as e:
         logger.error(f"Failed to send order confirmation email for order #{order.id}: {str(e)}")
         return False
+
+
+def send_order_status_update_email(order, old_status):
+    """
+    Send email to customer when admin changes order status.
+    Called on every status transition (confirmed, processing, shipped, delivered, cancelled).
+    """
+    # Map status codes to French labels and messages
+    STATUS_LABELS = {
+        'confirmed':  'Confirmée',
+        'processing': 'En cours de traitement',
+        'shipped':    'Expédiée',
+        'delivered':  'Livrée',
+        'cancelled':  'Annulée',
+    }
+    # Only send for meaningful transitions
+    if order.status == old_status or order.status == 'pending':
+        return False
+
+    try:
+        status_label = STATUS_LABELS.get(order.status, order.status)
+        subject = f'Mise à jour de votre commande n°{order.order_number} - {status_label}'
+
+        frontend_url = settings.FRONTEND_URL
+        subtotal = order.total_amount - (order.delivery_cost or 0)
+
+        html_content = render_to_string('emails/order_status_update.html', {
+            'order': order,
+            'status_label': status_label,
+            'old_status': old_status,
+            'site_url': frontend_url,
+            'site_name': 'PneuShop',
+            'subtotal': subtotal,
+        })
+        text_content = strip_tags(html_content)
+
+        send_mail(
+            subject=subject,
+            message=text_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[order.user.email],
+            html_message=html_content,
+            fail_silently=False,
+        )
+        logger.info(f"✅ Status update email sent to {order.user.email} for order #{order.id} → {order.status}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send status update email for order #{order.id}: {str(e)}")
+        return False

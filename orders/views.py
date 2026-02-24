@@ -71,6 +71,18 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = OrderSerializer
     permission_classes = [permissions.AllowAny]
 
+    def perform_update(self, serializer):
+        from accounts.email_utils import send_order_status_update_email
+        # Capture old status before the update
+        old_status = serializer.instance.status
+        order = serializer.save()
+        # Send status-change email to customer if status changed
+        if order.status != old_status:
+            try:
+                send_order_status_update_email(order, old_status)
+            except Exception as e:
+                print(f"[ORDER UPDATE] Failed to send status update email: {str(e)}")
+
 
 class OrderListCreateView(generics.ListCreateAPIView):
     serializer_class = OrderSerializer
