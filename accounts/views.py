@@ -353,11 +353,11 @@ def create_user(request):
             {'error': 'You do not have permission to perform this action'},
             status=status.HTTP_403_FORBIDDEN
         )
-    # Only allow creating purchasing and sales accounts
+    # Only allow creating purchasing, sales and responsable_achats accounts
     role = request.data.get('role')
-    if role not in ['purchasing', 'sales']:
+    if role not in ['purchasing', 'sales', 'responsable_achats']:
         return Response(
-            {'error': 'You can only create purchasing or sales accounts'}, 
+            {'error': 'You can only create purchasing, sales or responsable_achats accounts'}, 
             status=status.HTTP_400_BAD_REQUEST
         )
     

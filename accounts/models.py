@@ -37,6 +37,7 @@ class CustomUser(AbstractUser):
         ("purchasing", "Purchasing"),
         ("sales", "Sales"),
         ("customer", "Customer"),
+        ("responsable_achats", "Responsable Achats"),
     ]
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="customer")
 

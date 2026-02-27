@@ -122,5 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             return "sales"
         elif obj.role == "purchasing":
             return "purchasing"
+        elif obj.role == "responsable_achats":
+            return "responsable_achats"
         else:
             return "customer"
