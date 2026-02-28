@@ -198,6 +198,8 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # Specific origins (use this instead of CORS_ALLOW_ALL_ORIGINS in production)
 CORS_ALLOWED_ORIGINS = [
+    "https://pneushop.tn",
+    "https://www.pneushop.tn",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://102.211.210.215",
