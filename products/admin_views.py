@@ -235,12 +235,12 @@ def reports_data(request):
     included_statuses = ['completed', 'delivered', 'processing', 'shipped']
 
     # Sales statistics
-    total_revenue = o.objects.filter(status__in=included_statuses).aggregate(
+    total_revenue = Order.objects.filter(status__in=included_statuses).aggregate(
         total=Sum('total_amount')
     )['total'] or 0
 
     # Monthly stats
-    monthly_orders = o.objects.filter(
+    monthly_orders = Order.objects.filter(
         created_at__date__gte=start_of_month    ,
         status__in=included_statuses
     ).aggregate(
@@ -249,7 +249,7 @@ def reports_data(request):
     )
 
     # Weekly stats
-    weekly_orders = o.objects.filter(
+    weekly_orders = Order.objects.filter(
         created_at__date__gte=start_of_week,
         status__in=included_statuses
     ).aggregate(
@@ -258,7 +258,7 @@ def reports_data(request):
     )
 
     # Daily stats
-    daily_orders = o.objects.filter(
+    daily_orders = Order.objects.filter(
         created_at__date=start_of_day,
         status__in=included_statuses
     ).aggregate(
@@ -288,7 +288,7 @@ def reports_data(request):
         else:
             month_end = month_date.replace(month=month_date.month + 1, day=1) - timedelta(days=1)
 
-        month_orders = o.objects.filter(
+        month_orders = Order.objects.filter(
             created_at__date__gte=month_start,
             created_at__date__lte=month_end,
             status__in=included_statuses
@@ -309,7 +309,7 @@ def reports_data(request):
         week_start = today - timedelta(days=today.weekday() + 7*i)
         week_end = week_start + timedelta(days=6)
 
-        week_orders = o.objects.filter(
+        week_orders = Order.objects.filter(
             created_at__date__gte=week_start,
             created_at__date__lte=week_end,
             status__in=included_statuses
@@ -325,7 +325,7 @@ def reports_data(request):
         })
 
     # Top products by revenue
-    top_products = oi.objects.filter(
+    top_products = OrderItem.objects.filter(
     order__status__in=included_statuses
     ).values(
         'product_name'  # Direct field from OrderItem
@@ -335,7 +335,7 @@ def reports_data(request):
     ).order_by('-total_revenue')[:5]
 
     # Top clients by total spent
-    top_clients = o.objects.filter(
+    top_clients = Order.objects.filter(
         status__in=included_statuses
     ).values(
         'user__username', 'user__first_name', 'user__last_name'
@@ -375,6 +375,7 @@ def reports_data(request):
     }
 
     return Response(reports_data)
+@api_view(['GET'])
 @permission_classes([IsAdminUser])
 def debug_database_stats(request):
     """Debug endpoint to check database content"""
@@ -547,8 +548,14 @@ def create_product_manual(request):
         # Map frontend season values to backend
         season_map = {
             'ete': 'summer',
+            'été': 'summer',
+            'summer': 'summer',
             'hiver': 'winter',
-            'toutes-saisons': 'all_season'
+            'winter': 'winter',
+            'toutes-saisons': 'all_season',
+            'toutes saisons': 'all_season',
+            'all_season': 'all_season',
+            'all-season': 'all_season',
         }
         season = season_map.get(
             specifications.get('season', 'ete') if specifications else 'ete',

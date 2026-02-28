@@ -35,6 +35,8 @@ class Product(models.Model):
         ('all_season', 'Toutes saisons')
     ], verbose_name="Saison")
     stock = models.PositiveIntegerField(default=0, verbose_name="Stock")
+    stock_min = models.PositiveIntegerField(default=5, verbose_name="Stock minimum (alerte)")
+    stock_max = models.PositiveIntegerField(default=100, verbose_name="Stock maximum")
     is_featured = models.BooleanField(default=False, verbose_name="Mis en avant")
     is_active = models.BooleanField(default=True, verbose_name="Actif")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Créé le")
