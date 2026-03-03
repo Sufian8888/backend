@@ -25,13 +25,15 @@ def extract_tire_info(name):
     """Extract tire information from product name"""
     print(f"🔍 Extracting tire info from: {name}")
     
-    # Extract brand - look for common brands
-    brand = "Continental"  # Default brand
-    brand_patterns = ['LAUFENN', 'CONTINENTAL', 'MICHELIN', 'BRIDGESTONE', 'GOODYEAR', 'PIRELLI']
-    for b in brand_patterns:
-        if b.upper() in name.upper():
-            brand = b.capitalize()
-            break
+    # Extract brand dynamically: first word after PNEU / TIRE / TYRE prefix
+    # e.g. "PNEU AMINE 175/70R14" → "Amine"
+    #      "PNEU CONTINENTAL 205/55R16" → "Continental"
+    name_clean = re.sub(r'^(PNEU|TIRE|TYRE)\s+', '', name.strip(), flags=re.IGNORECASE)
+    first_word = name_clean.split()[0] if name_clean.split() else None
+    if first_word and re.match(r'^[A-Za-z]+$', first_word):
+        brand = first_word.capitalize()
+    else:
+        brand = "Unknown"
     
     # Extract tire size using improved regex (format: XXX/XX RXX or XXX/XXrXX)
     # Updated to handle more variations: 165/60R14, 195/65 R 15, 205/55R16, etc.
@@ -51,11 +53,10 @@ def extract_tire_info(name):
     print(f"   Brand: {brand}, Size: {size}")
     
     # Remove common prefixes and tire size to extract product name
-    clean_name = name.replace("Pneu", "").replace("pneu", "").strip()
+    clean_name = re.sub(r'^(PNEU|TIRE|TYRE)\s+', '', name.strip(), flags=re.IGNORECASE)
     
-    # Remove brand from name
-    for b in brand_patterns:
-        clean_name = clean_name.replace(b, "").replace(b.upper(), "").replace(b.lower(), "")
+    # Remove the detected brand word from the name
+    clean_name = re.sub(r'^' + re.escape(brand) + r'\s+', '', clean_name, flags=re.IGNORECASE).strip()
     
     # Remove the tire size pattern
     if size_match:
