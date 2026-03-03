@@ -232,16 +232,17 @@ def reports_data(request):
     start_of_day = today
 
 
-    included_statuses = ['completed', 'delivered', 'processing', 'shipped']
+    # Use statuses from orders.models.Order (no 'completed', has 'confirmed')
+    included_statuses = ['confirmed', 'processing', 'shipped', 'delivered']
 
-    # Sales statistics
-    total_revenue = Order.objects.filter(status__in=included_statuses).aggregate(
+    # Sales statistics (using real orders from orders.models.Order aliased as 'o')
+    total_revenue = o.objects.filter(status__in=included_statuses).aggregate(
         total=Sum('total_amount')
     )['total'] or 0
 
     # Monthly stats
-    monthly_orders = Order.objects.filter(
-        created_at__date__gte=start_of_month    ,
+    monthly_orders = o.objects.filter(
+        created_at__date__gte=start_of_month,
         status__in=included_statuses
     ).aggregate(
         total_orders=Count('id'),
@@ -249,7 +250,7 @@ def reports_data(request):
     )
 
     # Weekly stats
-    weekly_orders = Order.objects.filter(
+    weekly_orders = o.objects.filter(
         created_at__date__gte=start_of_week,
         status__in=included_statuses
     ).aggregate(
@@ -258,7 +259,7 @@ def reports_data(request):
     )
 
     # Daily stats
-    daily_orders = Order.objects.filter(
+    daily_orders = o.objects.filter(
         created_at__date=start_of_day,
         status__in=included_statuses
     ).aggregate(
@@ -268,7 +269,7 @@ def reports_data(request):
 
     # Client and product stats
     total_customers = CustomUser.objects.filter(is_staff=False).count()
-    total_products_sold = OrderItem.objects.filter(
+    total_products_sold = oi.objects.filter(
         order__status__in=included_statuses
     ).aggregate(total=Sum('quantity'))['total'] or 0
 
@@ -288,12 +289,12 @@ def reports_data(request):
         else:
             month_end = month_date.replace(month=month_date.month + 1, day=1) - timedelta(days=1)
 
-        month_orders = Order.objects.filter(
+        month_orders = o.objects.filter(
             created_at__date__gte=month_start,
             created_at__date__lte=month_end,
             status__in=included_statuses
         ).aggregate(
-            total_revenue=Sum('total_amount'),  # Use total_amount from Order model
+            total_revenue=Sum('total_amount'),
             total_orders=Count('id')
         )
 
@@ -309,7 +310,7 @@ def reports_data(request):
         week_start = today - timedelta(days=today.weekday() + 7*i)
         week_end = week_start + timedelta(days=6)
 
-        week_orders = Order.objects.filter(
+        week_orders = o.objects.filter(
             created_at__date__gte=week_start,
             created_at__date__lte=week_end,
             status__in=included_statuses
@@ -324,25 +325,34 @@ def reports_data(request):
             'commandes': week_orders.get('total_orders', 0) or 0
         })
 
-    # Top products by revenue
-    top_products = OrderItem.objects.filter(
-    order__status__in=included_statuses
+    # Top products by revenue (orders.models.OrderItem has product_name CharField and unit_price)
+    top_products = oi.objects.filter(
+        order__status__in=included_statuses
     ).values(
-        'product_name'  # Direct field from OrderItem
+        'product_name'
     ).annotate(
         quantity=Sum('quantity'),
-        total_revenue=Sum('unit_price')  # Changed from 'price' to 'unit_price'
+        total_revenue=Sum('total_price')
     ).order_by('-total_revenue')[:5]
 
     # Top clients by total spent
-    top_clients = Order.objects.filter(
+    top_clients = o.objects.filter(
         status__in=included_statuses
     ).values(
         'user__username', 'user__first_name', 'user__last_name'
     ).annotate(
         total_orders=Count('id'),
-        total_spent=Sum('total_amount')  # Use total_amount from Order model
+        total_spent=Sum('total_amount')
     ).order_by('-total_spent')[:5]
+
+    # All-time totals
+    all_time = o.objects.filter(status__in=included_statuses).aggregate(
+        total_revenue=Sum('total_amount'),
+        total_orders=Count('id')
+    )
+    total_revenue_all = float(all_time.get('total_revenue', 0) or 0)
+    total_orders_all = all_time.get('total_orders', 0) or 0
+    panier_moyen = round(total_revenue_all / total_orders_all, 2) if total_orders_all > 0 else 0
 
     # Format the response
     reports_data = {
@@ -354,13 +364,16 @@ def reports_data(request):
             'commandes_hebdo': weekly_orders.get('total_orders', 0) or 0,
             'commandes_mensuel': monthly_orders.get('total_orders', 0) or 0,
             'clients_actifs': total_customers,
-            'produits_vendus': total_products_sold
+            'produits_vendus': total_products_sold,
+            'ventes_total': total_revenue_all,
+            'commandes_total': total_orders_all,
+            'panier_moyen': panier_moyen,
         },
         'ventes_par_mois': monthly_evolution,
         'ventes_par_semaine': weekly_evolution,
         'top_produits': [
         {
-            'nom': product['product_name'],  # Changed from f-string with brand
+            'nom': product['product_name'],
             'ventes': product['quantity'],
             'chiffre': float(product['total_revenue'])
         } for product in top_products
