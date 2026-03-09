@@ -72,6 +72,7 @@ cloudinary.config(
     secure=True,
 )
 MIDDLEWARE = [
+    'pneushop.cors_middleware.CorsAlwaysAllowMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -204,6 +205,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://102.211.210.215",
     "https://102.211.210.215",
+    "http://102.211.210.249",
+    "https://102.211.210.249",
     "http://soulaima16.obg.com.tn",
     "https://soulaima16.obg.com.tn",
 ]

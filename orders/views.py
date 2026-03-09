@@ -62,7 +62,9 @@
 
 
 from rest_framework import generics, permissions, viewsets
-from .models import Delivery, Order, PurchaseOrder
+from rest_framework.decorators import api_view, permission_classes as perm_classes
+from rest_framework.response import Response
+from .models import Delivery, Order, PurchaseOrder, CRIBalance
 from .serializers import DeliverySerializer, OrderSerializer, PurchaseOrderSerializer
 from rest_framework.permissions import IsAuthenticated
 
@@ -160,3 +162,14 @@ class DeliveryViewSet(viewsets.ModelViewSet):
     queryset = Delivery.objects.all()
     serializer_class = DeliverySerializer
     permission_classes = [IsAuthenticated]
+
+
+@api_view(['GET'])
+@perm_classes([IsAuthenticated])
+def get_cri_balance(request):
+    """Get the current user's CRI (loan) balance from previous orders."""
+    balance_obj, _ = CRIBalance.objects.get_or_create(user=request.user)
+    return Response({
+        'balance': float(balance_obj.balance),
+        'updated_at': balance_obj.updated_at,
+    })

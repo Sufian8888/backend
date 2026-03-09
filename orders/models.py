@@ -37,6 +37,11 @@ class Order(models.Model):
     warranty_vehicle_registration = models.CharField(max_length=100, blank=True, null=True)
     warranty_vehicle_mileage = models.CharField(max_length=50, blank=True, null=True)
     
+    # CRI payment fields
+    cri_amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Amount paid now via CRI")
+    cri_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Remaining unpaid amount (loan)")
+    cri_remarque = models.TextField(blank=True, null=True, help_text="CRI payment note")
+    
     def __str__(self):
         return f"{self.order_number} - {self.user.email}"
 
@@ -116,5 +121,20 @@ class Delivery(models.Model):
         elif self.order:
             return f"Delivery {self.id} for Order {self.order.id}"
         return f"Delivery {self.id}"
+
+
+class CRIBalance(models.Model):
+    """Tracks cumulative CRI (loan) balance per user."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='cri_balance'
+    )
+    balance = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text="Total unpaid CRI amount carried over from previous orders"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"CRI Balance: {self.user.email} - {self.balance} DT"
 
 

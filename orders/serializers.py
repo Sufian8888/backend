@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Delivery, Order, OrderItem, PurchaseOrder, PurchaseOrderItem
+from .models import Delivery, Order, OrderItem, PurchaseOrder, PurchaseOrderItem, CRIBalance
 from accounts.serializers import UserSerializer  # import your CustomUser serializer
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -22,6 +22,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from django.utils import timezone
+        from decimal import Decimal
         
         # Extract nested data
         items_data = validated_data.pop('items')
@@ -36,13 +37,26 @@ class OrderSerializer(serializers.ModelSerializer):
         # Create order
         order = Order.objects.create(**validated_data)
         
+        # Handle CRI balance: if payment method is CRI, update user's loan balance
+        if order.payment_method == 'cri' and order.cri_remaining > 0:
+            user = order.user
+            cri_balance, _ = CRIBalance.objects.get_or_create(user=user)
+            cri_balance.balance += Decimal(str(order.cri_remaining))
+            cri_balance.save()
+        
         # Generate order number with PS + year + sequential format
         if not order.order_number:
             year = timezone.now().strftime('%y')  # Get 2-digit year
-            # Get the count of orders created this year
-            year_start = timezone.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            order_count = Order.objects.filter(created_at__gte=year_start).count()
-            order.order_number = f'PS{year}{order_count:06d}'
+            prefix = f'PS{year}'
+            # Find the highest existing order number for this year
+            last_order = Order.objects.filter(
+                order_number__startswith=prefix
+            ).order_by('-order_number').first()
+            if last_order and last_order.order_number.startswith(prefix):
+                last_seq = int(last_order.order_number[len(prefix):])
+            else:
+                last_seq = 0
+            order.order_number = f'{prefix}{last_seq + 1:06d}'
             order.save()
         
         # Create order items
