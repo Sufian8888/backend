@@ -10,6 +10,7 @@ urlpatterns = [
         # Excel import endpoints
     path('import/excel/', import_views.import_products_excel, name='import_excel'),        # Full import with images
     path('import/fast/', import_views.import_products_fast, name='import_fast'),           # Fast bulk import
+    path('import/data-only/', import_views.import_data_only_fast, name='import_data_only'), # ⚡ FASTEST: No images
     path('import/test/', import_views.quick_import_test, name='quick_import_test'),        # Test endpoint  
     path('import/preview/', import_views.import_preview, name='import_preview'),
     path('site-settings/', views.site_settings, name='site_settings'),
