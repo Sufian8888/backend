@@ -42,6 +42,44 @@ class Order(models.Model):
     cri_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0, help_text="Remaining unpaid amount (loan)")
     cri_remarque = models.TextField(blank=True, null=True, help_text="CRI payment note")
     
+    # Bank Transfer (Virement) fields
+    transfer_number = models.CharField(max_length=100, blank=True, null=True)
+    transfer_holder_name = models.CharField(max_length=255, blank=True, null=True)
+    transfer_bank_name = models.CharField(max_length=100, blank=True, null=True)
+    transfer_image_name = models.CharField(max_length=255, blank=True, null=True)
+    transfer_amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    transfer_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    transfer_remarque = models.TextField(blank=True, null=True)
+    
+    # Letter of Change (Lettre de change) fields
+    lettre_number = models.CharField(max_length=100, blank=True, null=True)
+    lettre_date = models.DateField(blank=True, null=True)
+    lettre_name = models.CharField(max_length=255, blank=True, null=True)
+    lettre_bank_name = models.CharField(max_length=100, blank=True, null=True)
+    lettre_rib = models.CharField(max_length=50, blank=True, null=True)
+    lettre_lieu = models.CharField(max_length=100, blank=True, null=True)
+    lettre_image_name = models.CharField(max_length=255, blank=True, null=True)
+    lettre_amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    lettre_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    lettre_remarque = models.TextField(blank=True, null=True)
+    
+    # Check (Chèque) fields
+    cheque_number = models.CharField(max_length=100, blank=True, null=True)
+    cheque_date = models.DateField(blank=True, null=True)
+    cheque_name = models.CharField(max_length=255, blank=True, null=True)
+    cheque_bank_name = models.CharField(max_length=100, blank=True, null=True)
+    cheque_image_name = models.CharField(max_length=255, blank=True, null=True)
+    cheque_amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    cheque_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    cheque_remarque = models.TextField(blank=True, null=True)
+    
+    # Cash on Delivery (TPE à la livraison) fields
+    cod_authorization_number = models.CharField(max_length=100, blank=True, null=True)
+    cod_bank_name = models.CharField(max_length=100, blank=True, null=True)
+    cod_amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    cod_remaining = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, null=True)
+    cod_remarque = models.TextField(blank=True, null=True)
+    
     def __str__(self):
         return f"{self.order_number} - {self.user.email}"
 
