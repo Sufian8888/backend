@@ -72,8 +72,8 @@ cloudinary.config(
     secure=True,
 )
 MIDDLEWARE = [
-    'pneushop.cors_middleware.CorsAlwaysAllowMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'pneushop.cors_middleware.CorsAlwaysAllowMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
