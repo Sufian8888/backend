@@ -2,21 +2,26 @@ import os
 import time
 from decimal import Decimal
 import tempfile
+import uuid
 import pandas as pd
 import re
 import cloudinary.uploader
 from io import BytesIO
-import tempfile
 from openpyxl import load_workbook
 from django.conf import settings
+from django.core.files.storage import FileSystemStorage
+from django.db import close_old_connections
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Product, Category
+from .models import Product, Category, ImportJob
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+import traceback
 
 output_folder = os.path.join(settings.MEDIA_ROOT, "uploads/images")
 os.makedirs(output_folder, exist_ok=True)
@@ -252,37 +257,331 @@ def extract_images_from_excel(excel_file):
     return extract_images_from_excel_optimized(excel_file)
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def import_products_excel(request):
-    # Initialize variables immediately to prevent "not associated with a value" errors
+def _save_uploaded_import_file(uploaded_file):
+    """Save uploaded file to persistent import folder and return absolute path."""
+    import_dir = os.path.join(settings.MEDIA_ROOT, "uploads/imports")
+    os.makedirs(import_dir, exist_ok=True)
+
+    storage = FileSystemStorage(location=import_dir)
+    safe_name = os.path.basename(uploaded_file.name)
+    unique_name = f"{uuid.uuid4().hex}_{safe_name}"
+    stored_name = storage.save(unique_name, uploaded_file)
+    return storage.path(stored_name)
+
+
+def _run_excel_import(file_path, job=None):
+    """Run full import logic and return summary data for async job updates."""
     df = None
-    total_rows = 0
     created_products = []
     errors = []
     row_images = {}
-    
+
+    # Validate Cloudinary configuration
+    cloudinary_available = False
     try:
-        # Validate Cloudinary configuration
-        cloudinary_available = False
+        import cloudinary
+        cloudinary_available = bool(
+            cloudinary.config().cloud_name
+            and cloudinary.config().api_key
+            and cloudinary.config().api_secret
+        )
+        if cloudinary_available:
+            print("✅ Cloudinary is configured and available")
+        else:
+            print("⚠️ Cloudinary not fully configured - images will be skipped")
+    except Exception as e:
+        print(f"⚠️ Cloudinary validation failed: {e} - images will be skipped")
+
+    # Load Excel data first - handle multiple sheets
+    excel_data = pd.read_excel(file_path, sheet_name=None)
+    if not excel_data:
+        raise ValueError("Excel file has no sheets")
+
+    # Combine all sheets into one dataframe
+    df = pd.concat(excel_data.values(), ignore_index=True)
+    sheet_count = len(excel_data)
+    print(f"✅ Successfully loaded Excel file with {sheet_count} sheet(s) and {len(df)} total rows")
+
+    # Extract images (if cloudinary is available)
+    if cloudinary_available:
         try:
-            import cloudinary
-            
-            # Check if cloudinary is properly configured via environment or settings
-            cloudinary_available = bool(
-                cloudinary.config().cloud_name and 
-                cloudinary.config().api_key and 
-                cloudinary.config().api_secret
-            )
-            
-            if cloudinary_available:
-                print("✅ Cloudinary is configured and available")
-            else:
-                print("⚠️ Cloudinary not fully configured - images will be skipped")
-                
+            print("🔄 Starting image extraction from Excel...")
+            row_images = extract_images_from_excel(file_path)
+            print(f"✅ Extracted {len(row_images)} images from Excel")
         except Exception as e:
-            print(f"⚠️ Cloudinary validation failed: {e} - images will be skipped")
-        
+            print(f"⚠️ Image extraction failed: {e}. Continuing without images.")
+            row_images = {}
+            print(f"Image extraction traceback: {traceback.format_exc()}")
+
+    # Normalize column names
+    df.columns = [str(c).strip().upper() for c in df.columns]
+
+    if 'REFERNECE' in df.columns:
+        df = df.rename(columns={'REFERNECE': 'REFERENCE'})
+
+    if 'UNNAMED: 0' in df.columns:
+        if 'REFERENCE' not in df.columns and 'NOM' not in df.columns:
+            df = df.rename(columns={'UNNAMED: 0': 'NOM'})
+        else:
+            df = df.drop(columns=['UNNAMED: 0'])
+
+    # Required: either NOM or REFERENCE, and PRIX TTC
+    has_name = 'NOM' in df.columns or 'REFERENCE' in df.columns
+    has_price = 'PRIX TTC' in df.columns
+
+    if not has_price:
+        raise ValueError('Missing required column: PRIX TTC')
+
+    if not has_name:
+        raise ValueError('Missing product name column (expected NOM or REFERENCE)')
+
+    batch_size = 20
+    total_rows = len(df) if df is not None else 0
+
+    if total_rows == 0:
+        raise ValueError('Excel file is empty or has no data rows')
+
+    print(f"🔄 Processing {total_rows} rows from Excel in batches of {batch_size}...")
+
+    if job:
+        job.total_rows = total_rows
+        job.created_count = 0
+        job.error_count = 0
+        job.message = f"Upload completed. Processing 0/{total_rows} rows..."
+        job.save(update_fields=['total_rows', 'created_count', 'error_count', 'message', 'updated_at'])
+
+    processed_rows = 0
+    last_progress_save = time.time()
+
+    for batch_start in range(0, total_rows, batch_size):
+        batch_end = min(batch_start + batch_size, total_rows)
+
+        for index in range(batch_start, batch_end):
+            row = df.iloc[index]
+            processed_rows += 1
+            try:
+                product_name = None
+                if 'REFERENCE' in df.columns and not pd.isna(row['REFERENCE']):
+                    product_name = str(row['REFERENCE']).strip()
+                elif 'NOM' in df.columns and not pd.isna(row['NOM']):
+                    product_name = str(row['NOM']).strip()
+
+                if not product_name or pd.isna(row['PRIX TTC']):
+                    if job and (time.time() - last_progress_save > 0.7):
+                        job.message = f"Processing row {processed_rows}/{total_rows} (empty/invalid row skipped)"
+                        job.error_count = len(errors)
+                        job.created_count = len(created_products)
+                        job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                        last_progress_save = time.time()
+                    continue
+
+                if len(product_name) < 2:
+                    errors.append(f"Row {index + 1}: Invalid product name")
+                    if job and (time.time() - last_progress_save > 0.7):
+                        job.message = f"Processing row {processed_rows}/{total_rows} (invalid product name)"
+                        job.error_count = len(errors)
+                        job.created_count = len(created_products)
+                        job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                        last_progress_save = time.time()
+                    continue
+
+                price = float(row['PRIX TTC'])
+                if price <= 0:
+                    errors.append(f"Row {index + 1}: Invalid price: {price}")
+                    if job and (time.time() - last_progress_save > 0.7):
+                        job.message = f"Processing row {processed_rows}/{total_rows} (invalid price)"
+                        job.error_count = len(errors)
+                        job.created_count = len(created_products)
+                        job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                        last_progress_save = time.time()
+                    continue
+
+            except (ValueError, TypeError) as e:
+                errors.append(f"Row {index + 1}: Data validation error: {e}")
+                if job and (time.time() - last_progress_save > 0.7):
+                    job.message = f"Processing row {processed_rows}/{total_rows} (data validation error)"
+                    job.error_count = len(errors)
+                    job.created_count = len(created_products)
+                    job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                    last_progress_save = time.time()
+                continue
+
+            description = ""
+            if 'DESCRIPTION' in df.columns and not pd.isna(row['DESCRIPTION']):
+                description = str(row['DESCRIPTION']).strip()
+
+            image_urls = row_images.get(index + 2, [])
+            image_1 = image_urls[0] if len(image_urls) > 0 else ""
+            image_2 = image_urls[1] if len(image_urls) > 1 else ""
+            image_3 = image_urls[2] if len(image_urls) > 2 else ""
+
+            try:
+                tire_info = extract_tire_info(product_name)
+                product_display_name = product_name
+            except Exception as e:
+                print(f"⚠️ Tire info extraction failed for row {index + 1}: {e}")
+                tire_info = {'brand': 'Laufenn', 'size': 'Unknown'}
+                product_display_name = product_name
+
+            if job and (time.time() - last_progress_save > 0.7):
+                progress_title = tire_info.get('full_name', product_display_name)
+                job.message = (
+                    f"Processing row {processed_rows}/{total_rows} | "
+                    f"Brand: {tire_info.get('brand', 'Unknown')} | "
+                    f"Size: {tire_info.get('size', 'Unknown')} | "
+                    f"Result: {progress_title[:120]}"
+                )
+                job.error_count = len(errors)
+                job.created_count = len(created_products)
+                job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                last_progress_save = time.time()
+
+            try:
+                base_slug = slugify(product_display_name)
+                if not base_slug:
+                    base_slug = f"product-{index}"
+
+                slug = base_slug
+                counter = 1
+                while Product.objects.filter(slug=slug).exists():
+                    slug = f"{base_slug}-{counter}"
+                    counter += 1
+
+            except Exception as e:
+                slug = f"product-{index}-{int(time.time())}"
+                print(f"⚠️ Slug generation failed for row {index + 1}: {e}, using fallback: {slug}")
+
+            try:
+                season = determine_season(product_name, description)
+            except Exception as e:
+                season = 'all_season'
+                print(f"⚠️ Season determination failed for row {index + 1}: {e}")
+
+            try:
+                category_name = determine_category(product_name, description)
+                category_slug = slugify(category_name)
+
+                category, _ = Category.objects.get_or_create(
+                    slug=category_slug,
+                    defaults={
+                        'name': category_name,
+                        'description': f'Pneus {category_name}'
+                    }
+                )
+            except Exception as e:
+                category, _ = Category.objects.get_or_create(
+                    slug='tourisme',
+                    defaults={'name': 'tourisme', 'description': 'Pneus tourisme'}
+                )
+                print(f"⚠️ Category determination failed for row {index + 1}: {e}")
+
+            try:
+                product = Product.objects.create(
+                    name=product_display_name[:200],
+                    brand=tire_info['brand'][:100],
+                    size=tire_info['size'][:100],
+                    slug=slug,
+                    description=description,
+                    price=Decimal(str(price)),
+                    category=category,
+                    season=season,
+                    stock=10,
+                    is_active=True,
+                    image=image_1,
+                    image_2=image_2,
+                    image_3=image_3
+                )
+                created_products.append(product.name)
+
+            except Exception as db_error:
+                error_msg = f"Row {index + 1}: Database error creating product: {db_error}"
+                errors.append(error_msg)
+                print(f"❌ {error_msg}")
+                if job and (time.time() - last_progress_save > 0.7):
+                    job.message = f"Processing row {processed_rows}/{total_rows} (database error)"
+                    job.error_count = len(errors)
+                    job.created_count = len(created_products)
+                    job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                    last_progress_save = time.time()
+                continue
+
+            if job and (time.time() - last_progress_save > 0.7):
+                job.message = f"Processing row {processed_rows}/{total_rows} | Created: {len(created_products)} | Errors: {len(errors)}"
+                job.error_count = len(errors)
+                job.created_count = len(created_products)
+                job.save(update_fields=['message', 'error_count', 'created_count', 'updated_at'])
+                last_progress_save = time.time()
+
+        print(f"✅ Completed batch {batch_start // batch_size + 1} - Created {len(created_products)} products so far")
+
+    success_rate = (len(created_products) / total_rows * 100) if total_rows > 0 else 0
+
+    return {
+        'total_rows': total_rows,
+        'created': len(created_products),
+        'errors': errors,
+        'error_count': len(errors),
+        'images_processed': len(row_images) > 0,
+        'success_rate': f"{success_rate:.1f}%"
+    }
+
+
+def _process_import_job(job_id):
+    """Background job processor for Excel import."""
+    close_old_connections()
+    job = None
+
+    try:
+        job = ImportJob.objects.get(id=job_id)
+        job.status = 'processing'
+        job.started_at = timezone.now()
+        job.message = 'Processing started'
+        job.save(update_fields=['status', 'started_at', 'message', 'updated_at'])
+
+        summary = _run_excel_import(job.file_path, job=job)
+
+        job.status = 'completed'
+        job.total_rows = summary['total_rows']
+        job.created_count = summary['created']
+        job.error_count = summary['error_count']
+        job.images_processed = summary['images_processed']
+        job.errors = summary['errors'][:50]
+        job.message = f"Import completed successfully ({summary['success_rate']})"
+        job.finished_at = timezone.now()
+        job.save()
+
+    except Exception as e:
+        if job is None:
+            try:
+                job = ImportJob.objects.get(id=job_id)
+            except Exception:
+                return
+
+        job.status = 'failed'
+        job.message = str(e)
+        job.error_count = max(job.error_count, 1)
+        job.errors = [str(e), traceback.format_exc()]
+        job.finished_at = timezone.now()
+        job.save()
+
+    finally:
+        # Final step: always delete source file so server storage does not grow.
+        try:
+            if job and job.file_path and os.path.exists(job.file_path):
+                os.unlink(job.file_path)
+                job.file_path = ''
+                job.save(update_fields=['file_path', 'updated_at'])
+                print(f"🧹 Deleted processed import file for job {job.id}")
+        except Exception as cleanup_error:
+            print(f"⚠️ Could not delete import file for job {job_id}: {cleanup_error}")
+
+        close_old_connections()
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def import_products_excel(request):
+    try:
         if 'file' not in request.FILES:
             return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -291,294 +590,36 @@ def import_products_excel(request):
         if not excel_file.name.endswith(('.xlsx', '.xls')):
             return Response({'error': 'Invalid file type'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Save temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-            for chunk in excel_file.chunks():
-                tmp.write(chunk)
-            temp_path = tmp.name
+        saved_path = _save_uploaded_import_file(excel_file)
 
-        # Load Excel data first - handle multiple sheets
-        try:
-            # Read all sheets
-            excel_data = pd.read_excel(temp_path, sheet_name=None)  # Returns dict of all sheets
-            
-            if not excel_data:
-                return Response({
-                    'error': 'Excel file has no sheets',
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Combine all sheets into one dataframe
-            df = pd.concat(excel_data.values(), ignore_index=True)
-            sheet_count = len(excel_data)
-            
-            print(f"✅ Successfully loaded Excel file with {sheet_count} sheet(s) and {len(df)} total rows")
-            print(f"📋 Columns found in Excel: {list(df.columns)}")
-            print(f"📊 First few rows sample:")
-            print(df.head(3))
-        except Exception as e:
-            return Response({
-                'error': f'Failed to read Excel file: {str(e)}',
-                'note': 'Please ensure the file is a valid Excel file (.xlsx or .xls)'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Extract images with timeout protection (reset row_images)
-        
-        # Extract images for all files (removed row limit check)
-        process_images = True  # Always process images
-        
-        if process_images:
-            try:
-                print("🔄 Starting image extraction from Excel...")
-                row_images = extract_images_from_excel(temp_path)
-                print(f"✅ Extracted {len(row_images)} images from Excel")
-            except Exception as e:
-                print(f"⚠️ Image extraction failed: {e}. Continuing without images.")
-                row_images = {}
-                import traceback
-                print(f"Image extraction traceback: {traceback.format_exc()}")
-        
-        # Handle both old and new column formats
-        # Normalize column names first
-        print(f"🔧 Original columns: {list(df.columns)}")
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        print(f"🔧 Normalized columns: {list(df.columns)}")
-        
-        # Handle REFERNECE column (typo in Excel) - rename to REFERENCE
-        if 'REFERNECE' in df.columns:
-            df = df.rename(columns={'REFERNECE': 'REFERENCE'})
-            print(f"✅ Fixed REFERNECE typo → REFERENCE")
-        
-        # Handle Unnamed: 0 column (appears when concatenating sheets)
-        if 'UNNAMED: 0' in df.columns:
-            if 'REFERENCE' not in df.columns and 'NOM' not in df.columns:
-                # Only use it as NOM if no other name column exists
-                df = df.rename(columns={'UNNAMED: 0': 'NOM'})
-                print(f"✅ Renamed UNNAMED: 0 → NOM")
-            else:
-                # Drop it - it's probably sheet names, not product data
-                df = df.drop(columns=['UNNAMED: 0'])
-                print(f"✅ Dropped UNNAMED: 0 column (contains sheet names, not product data)")
+        job = ImportJob.objects.create(
+            original_filename=excel_file.name,
+            file_path=saved_path,
+            status='queued',
+            message='File uploaded and queued for background processing.'
+        )
 
-        # Required: either NOM or REFERENCE, and PRIX TTC
-        has_name = 'NOM' in df.columns or 'REFERENCE' in df.columns
-        has_price = 'PRIX TTC' in df.columns
-        
-        if not has_price:
-            return Response({
-                'error': 'Missing required column: PRIX TTC',
-                'columns_found': list(df.columns)
-            }, status=status.HTTP_400_BAD_REQUEST)
-            
-        if not has_name:
-            return Response({
-                'error': 'Missing product name column (expected NOM or REFERENCE)',
-                'columns_found': list(df.columns)
-            }, status=status.HTTP_400_BAD_REQUEST)
+        worker = threading.Thread(
+            target=_process_import_job,
+            args=(str(job.id),),
+            daemon=True
+        )
+        worker.start()
 
-        # Categories will be created dynamically per product based on type
+        response = Response({
+            'message': '✅ File uploaded. Import started in background.',
+            'job_id': str(job.id),
+            'status': job.status,
+            'status_endpoint': f'/api/products/import/status/{job.id}/',
+            'note': 'Upload request returns immediately. Processing continues asynchronously.'
+        }, status=status.HTTP_202_ACCEPTED)
 
-        # Update variables (initialized earlier)
-        batch_size = 20  # Process 20 rows at a time to prevent timeout
-        total_rows = len(df) if df is not None else 0
-
-        if total_rows == 0:
-            return Response({
-                'error': 'Excel file is empty or has no data rows',
-                'summary': {'total_rows': 0, 'created': 0, 'updated': 0, 'errors': 1},
-                'errors': ['No data found in Excel file']
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        print(f"🔄 Processing {total_rows} rows from Excel in batches of {batch_size}...")
-
-        for batch_start in range(0, total_rows, batch_size):
-            batch_end = min(batch_start + batch_size, total_rows)
-            print(f"📦 Processing batch {batch_start//batch_size + 1}: rows {batch_start+1} to {batch_end}")
-            
-            # Process current batch
-            for index in range(batch_start, batch_end):
-                row = df.iloc[index]
-                try:
-                    # Get product name from REFERENCE or NOM column
-                    product_name = None
-                    if 'REFERENCE' in df.columns and not pd.isna(row['REFERENCE']):
-                        product_name = str(row['REFERENCE']).strip()
-                    elif 'NOM' in df.columns and not pd.isna(row['NOM']):
-                        product_name = str(row['NOM']).strip()
-                    
-                    # Debug: print what we got from Excel
-                    print(f"\n--- Row {index + 1} ---")
-                    print(f"Product Name from Excel: '{product_name}'")
-                    if 'REFERENCE' in df.columns:
-                        print(f"REFERENCE column value: '{row['REFERENCE']}'")
-                    if 'NOM' in df.columns:
-                        print(f"NOM column value: '{row['NOM']}'")
-                    print(f"PRIX TTC: {row.get('PRIX TTC', 'N/A')}")
-                    print(f"All row data: {dict(row)}")
-                    
-                    # Skip if no valid product name or price
-                    if not product_name or pd.isna(row['PRIX TTC']):
-                        print(f"❌ Skipping row {index + 1}: Missing name or price")
-                        continue
-
-                    # Validate product name
-                    if len(product_name) < 2:
-                        errors.append(f"Row {index + 1}: Invalid product name")
-                        continue
-                        
-                    # Validate price
-                    price = float(row['PRIX TTC'])
-                    if price <= 0:
-                        errors.append(f"Row {index + 1}: Invalid price: {price}")
-                        continue
-                        
-                except (ValueError, TypeError) as e:
-                    errors.append(f"Row {index + 1}: Data validation error: {e}")
-                    continue
-
-                # Handle optional DESCRIPTION column - preserve complete multi-line text
-                description = ""
-                if 'DESCRIPTION' in df.columns and not pd.isna(row['DESCRIPTION']):
-                    # Keep full description including newlines and formatting
-                    description = str(row['DESCRIPTION']).strip()
-                
-                # Get image URLs if available (now returns list of URLs)
-                image_urls = row_images.get(index + 2, [])
-                image_1 = image_urls[0] if len(image_urls) > 0 else ""
-                image_2 = image_urls[1] if len(image_urls) > 1 else ""
-                image_3 = image_urls[2] if len(image_urls) > 2 else ""
-
-                # Extract tire info & generate unique slug
-                try:
-                    tire_info = extract_tire_info(product_name)
-                    
-                    # Use the FULL REFERENCE as the product name (not the cleaned version)
-                    # Only extract brand and size, keep original name intact
-                    product_display_name = product_name  # Use full reference as-is
-                        
-                except Exception as e:
-                    print(f"⚠️ Tire info extraction failed for row {index + 1}: {e}")
-                    tire_info = {
-                        'brand': 'Laufenn',
-                        'size': 'Unknown',
-                    }
-                    product_display_name = product_name
-
-                # Generate unique slug from full product name
-                try:
-                    base_slug = slugify(product_display_name)
-                    if not base_slug:  # If slugify returns empty string
-                        base_slug = f"product-{index}"
-                        
-                    slug = base_slug
-                    counter = 1
-                    while Product.objects.filter(slug=slug).exists():
-                        slug = f"{base_slug}-{counter}"
-                        counter += 1
-                        
-                except Exception as e:
-                    slug = f"product-{index}-{int(time.time())}"  # Fallback unique slug
-                    print(f"⚠️ Slug generation failed for row {index + 1}: {e}, using fallback: {slug}")
-
-                # Determine season
-                try:
-                    season = determine_season(product_name, description)
-                except Exception as e:
-                    season = 'all_season'  # Safe fallback
-                    print(f"⚠️ Season determination failed for row {index + 1}: {e}")
-
-                # Determine category dynamically
-                try:
-                    category_name = determine_category(product_name, description)
-                    category_slug = slugify(category_name)
-                    
-                    category, _ = Category.objects.get_or_create(
-                        slug=category_slug,  # Match on slug (unique field)
-                        defaults={
-                            'name': category_name,
-                            'description': f'Pneus {category_name}'
-                        }
-                    )
-                except Exception as e:
-                    # Fallback to default category
-                    category, _ = Category.objects.get_or_create(
-                        slug='tourisme',  # Match on slug
-                        defaults={'name': 'tourisme', 'description': 'Pneus tourisme'}
-                    )
-                    print(f"⚠️ Category determination failed for row {index + 1}: {e}")
-
-                # Create product with error handling
-                try:
-                    product = Product.objects.create(
-                        name=product_display_name[:200],  # Use full REFERENCE as product name
-                        brand=tire_info['brand'][:100],  # Brand limit
-                        size=tire_info['size'][:100],  # Increased size limit
-                        slug=slug,
-                        description=description,  # Full multi-line description preserved
-                        price=Decimal(str(price)),
-                        category=category,
-                        season=season,
-                        stock=10,
-                        is_active=True,
-                        image=image_1,      # First image
-                        image_2=image_2,    # Second image (optional)
-                        image_3=image_3     # Third image (optional)
-                    )
-                    created_products.append(product.name)
-                    print(f"✅ Created product: {product.name} | Category: {category.name} | Images: {len([i for i in [image_1, image_2, image_3] if i])}")
-                    
-                except Exception as db_error:
-                    error_msg = f"Row {index + 1}: Database error creating product: {db_error}"
-                    errors.append(error_msg)
-                    print(f"❌ {error_msg}")
-                    continue
-
-                except Exception as e:
-                    error_msg = f"Row {index + 1}: Unexpected error: {e}"
-                    errors.append(error_msg)
-                    print(f"❌ {error_msg}")
-                    import traceback
-                    print(f"Full traceback: {traceback.format_exc()}")
-                    continue
-            
-            # Print batch completion
-            print(f"✅ Completed batch {batch_start//batch_size + 1} - Created {len(created_products)} products so far")
-
-        # Clean up temporary file
-        try:
-            os.unlink(temp_path)
-        except Exception as e:
-            print(f"⚠️ Could not delete temp file {temp_path}: {e}")
-
-        # Calculate success rate
-        success_rate = (len(created_products) / total_rows * 100) if total_rows > 0 else 0
-        
-        response_data = {
-            'message': '✅ Import completed successfully',
-            'summary': {
-                'total_rows': total_rows,
-                'created': len(created_products),
-                'updated': 0,  # Add for frontend compatibility
-                'errors': len(errors),
-                'success_rate': f"{success_rate:.1f}%",
-                'processing_time': 'Processed in batches to prevent timeout',
-                'images_processed': len(row_images) > 0
-            },
-            'created_products': created_products[:50],  # Limit response size
-            'updated_products': [],  # Add for frontend compatibility
-            'errors': errors[:20],  # Limit error list
-            'note': 'Large files are processed in batches to prevent server timeout'
-        }
-        
-        response = Response(response_data)
-        # Explicitly add CORS headers
         response['Access-Control-Allow-Origin'] = '*'
         response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
         response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         return response
 
     except Exception as e:
-        # More detailed error for debugging
-        import traceback
         error_detail = {
             'error': str(e),
             'type': type(e).__name__,
@@ -586,6 +627,33 @@ def import_products_excel(request):
         }
         print(f"❌ Import failed: {error_detail}")
         return Response(error_detail, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def import_status(request, job_id):
+    """Get background import status and summary."""
+    job = get_object_or_404(ImportJob, id=job_id)
+
+    response = Response({
+        'job_id': str(job.id),
+        'status': job.status,
+        'original_filename': job.original_filename,
+        'summary': {
+            'total_rows': job.total_rows,
+            'created': job.created_count,
+            'errors': job.error_count,
+            'images_processed': job.images_processed,
+        },
+        'message': job.message,
+        'errors': job.errors[:20],
+        'started_at': job.started_at,
+        'finished_at': job.finished_at,
+        'created_at': job.created_at,
+        'updated_at': job.updated_at,
+    })
+    response['Access-Control-Allow-Origin'] = '*'
+    return response
 
 
 @api_view(['POST'])

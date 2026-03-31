@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth import get_user_model
 from decimal import Decimal
+import uuid
 
 User = get_user_model()
 
@@ -199,3 +200,35 @@ class SiteSettings(models.Model):
     class Meta:
         verbose_name = "Paramètres du site"
         verbose_name_plural = "Paramètres du site"
+
+
+class ImportJob(models.Model):
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='queued')
+    original_filename = models.CharField(max_length=255)
+    file_path = models.CharField(max_length=500, blank=True)
+    total_rows = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    error_count = models.PositiveIntegerField(default=0)
+    images_processed = models.BooleanField(default=False)
+    errors = models.JSONField(default=list, blank=True)
+    message = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Import Job"
+        verbose_name_plural = "Import Jobs"
+
+    def __str__(self):
+        return f"{self.original_filename} ({self.status})"

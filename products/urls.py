@@ -13,6 +13,7 @@ urlpatterns = [
     path('import/data-only/', import_views.import_data_only_fast, name='import_data_only'), # ⚡ FASTEST: No images
     path('import/test/', import_views.quick_import_test, name='quick_import_test'),        # Test endpoint  
     path('import/preview/', import_views.import_preview, name='import_preview'),
+    path('import/status/<uuid:job_id>/', import_views.import_status, name='import_status'),
     path('site-settings/', views.site_settings, name='site_settings'),
 
     # Product update endpoint - must come before slug patterns
