@@ -14,7 +14,12 @@ from .permanent_permissions import IsAdmin
 
 from .models import CustomUser
 from .serializers import UserRegistrationSerializer, UserLoginSerializer, UserSerializer
-from .email_utils import send_welcome_email, send_password_reset_email, send_verification_email
+from .email_utils import (
+    send_welcome_email,
+    send_password_reset_email,
+    send_verification_email,
+    send_new_user_registered_admin_email,
+)
 
 # Helper function to auto-detect frontend URL from request
 def get_frontend_url(request):
@@ -102,6 +107,13 @@ class RegisterView(generics.CreateAPIView):
             print(f"✅ Verification email sent to {user.email}")
         except Exception as e:
             print(f"❌ Failed to send verification email: {e}")
+
+        # Notify admin for each new registration
+        try:
+            send_new_user_registered_admin_email(user)
+            print(f"✅ Admin notified for new registration: {user.email}")
+        except Exception as e:
+            print(f"⚠️ Admin notification failed: {e}")
         
         return Response({
             'success': True,

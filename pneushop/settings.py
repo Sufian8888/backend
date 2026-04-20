@@ -213,20 +213,16 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
-# Email configuration (for development/student project)
-# AWS SES Email Configuration
-EMAIL_BACKEND = 'django_ses.SESBackend'
-AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
-AWS_SES_REGION_NAME = config('AWS_SES_REGION_NAME', default='eu-west-3')
-AWS_SES_REGION_ENDPOINT = config('AWS_SES_REGION_ENDPOINT', default='email.eu-west-3.amazonaws.com')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@yourdomain.com')  # Must be verified in AWS SES
+# Email configuration (Postmark transactional email)
+POSTMARK_API_KEY = config('POSTMARK_API_KEY', default='')
+POSTMARK_MESSAGE_STREAM = config('POSTMARK_MESSAGE_STREAM', default='outbound')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@pneushop.tn')
 
 # Frontend URL for email links (password reset, etc.)
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000')
 
 # Admin email for notifications (order notifications, etc.)
-ADMIN_EMAIL = config('ADMIN_EMAIL', default='chathabahri55@gmail.com')
+ADMIN_EMAIL = config('ADMIN_EMAIL', default='admin@pneushop.tn')
 
 # Password reset token validity (in seconds)
 PASSWORD_RESET_TIMEOUT = 3600  # 1 hour

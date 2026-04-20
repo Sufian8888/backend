@@ -1,11 +1,33 @@
-from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.conf import settings
 from django.utils import timezone
 import logging
+from postmarker.core import PostmarkClient
 
 logger = logging.getLogger(__name__)
+
+
+def send_transactional_email(to, subject, text_body, html_body=None):
+    """Send transactional email through Postmark default transactional stream."""
+    try:
+        if not settings.POSTMARK_API_KEY:
+            logger.error("POSTMARK_API_KEY is missing. Email not sent.")
+            return False
+
+        client = PostmarkClient(server_token=settings.POSTMARK_API_KEY)
+        client.emails.send(
+            From=settings.DEFAULT_FROM_EMAIL,
+            To=to,
+            Subject=subject,
+            TextBody=text_body,
+            HtmlBody=html_body,
+            MessageStream=settings.POSTMARK_MESSAGE_STREAM,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send transactional email to {to}: {str(e)}")
+        return False
 
 def send_verification_email(user, verification_code, frontend_url):
     """Send email verification with code"""
@@ -27,15 +49,14 @@ def send_verification_email(user, verification_code, frontend_url):
         # Create plain text version
         text_content = strip_tags(html_content)
         
-        # Send email
-        send_mail(
+        sent = send_transactional_email(
+            to=user.email,
             subject=subject,
-            message=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            html_message=html_content,
-            fail_silently=False,
+            text_body=text_content,
+            html_body=html_content,
         )
+        if not sent:
+            return False
         
         logger.info(f"Verification email sent successfully to {user.email}")
         return True
@@ -62,21 +83,44 @@ def send_welcome_email(user):
         # Create plain text version
         text_content = strip_tags(html_content)
         
-        # Send email
-        send_mail(
+        sent = send_transactional_email(
+            to=user.email,
             subject=subject,
-            message=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            html_message=html_content,
-            fail_silently=False,
+            text_body=text_content,
+            html_body=html_content,
         )
+        if not sent:
+            return False
         
         logger.info(f"Welcome email sent successfully to {user.email}")
         return True
         
     except Exception as e:
         logger.error(f"Failed to send welcome email to {user.email}: {str(e)}")
+        return False
+
+
+def send_new_user_registered_admin_email(user):
+    """Notify admin when a new user account is created."""
+    try:
+        admin_email = getattr(settings, 'ADMIN_EMAIL', 'admin@pneushop.tn')
+        subject = 'New User Registered'
+        message = f"A new user has signed up: {user.email}"
+
+        sent = send_transactional_email(
+            to=admin_email,
+            subject=subject,
+            text_body=message,
+            html_body=f"<p>{message}</p>",
+        )
+        if not sent:
+            return False
+
+        logger.info(f"✅ New user registration email sent to ADMIN: {admin_email} for user {user.email}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send new user registration email to admin for {user.email}: {str(e)}")
         return False
 
 def send_password_reset_email(user, reset_url, token, request_ip=None):
@@ -97,15 +141,14 @@ def send_password_reset_email(user, reset_url, token, request_ip=None):
         # Create plain text version
         text_content = strip_tags(html_content)
         
-        # Send email
-        send_mail(
+        sent = send_transactional_email(
+            to=user.email,
             subject=subject,
-            message=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            html_message=html_content,
-            fail_silently=False,
+            text_body=text_content,
+            html_body=html_content,
         )
+        if not sent:
+            return False
         
         logger.info(f"Password reset email sent successfully to {user.email}")
         return True
@@ -140,14 +183,14 @@ def send_order_confirmation_email(order):
         text_content = strip_tags(html_content)
         
         # SEND TO CUSTOMER
-        send_mail(
+        customer_sent = send_transactional_email(
+            to=order.user.email,
             subject=subject,
-            message=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[order.user.email],
-            html_message=html_content,
-            fail_silently=False,
+            text_body=text_content,
+            html_body=html_content,
         )
+        if not customer_sent:
+            return False
         logger.info(f"✅ Order confirmation email sent to CUSTOMER: {order.user.email} for order #{order.id}")
         
         # SEND TO ADMIN (notification)
@@ -166,14 +209,14 @@ def send_order_confirmation_email(order):
         # Get admin email from settings
         admin_email = getattr(settings, 'ADMIN_EMAIL', 'admin@pneushop.tn')
         
-        send_mail(
+        admin_sent = send_transactional_email(
+            to=admin_email,
             subject=admin_subject,
-            message=admin_text,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[admin_email],
-            html_message=admin_html,
-            fail_silently=False,
+            text_body=admin_text,
+            html_body=admin_html,
         )
+        if not admin_sent:
+            return False
         logger.info(f"✅ Order notification email sent to ADMIN: {admin_email} for order #{order.id}")
         
         return True
@@ -217,14 +260,14 @@ def send_order_status_update_email(order, old_status):
         })
         text_content = strip_tags(html_content)
 
-        send_mail(
+        sent = send_transactional_email(
+            to=order.user.email,
             subject=subject,
-            message=text_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[order.user.email],
-            html_message=html_content,
-            fail_silently=False,
+            text_body=text_content,
+            html_body=html_content,
         )
+        if not sent:
+            return False
         logger.info(f"✅ Status update email sent to {order.user.email} for order #{order.id} → {order.status}")
         return True
 
